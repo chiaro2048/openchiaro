@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --input-type=module -e \"const p=process.env.CHIARO_HOOK_PATH;if(p)await import((await import('node:url')).pathToFileURL(p).href)\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --input-type=module -e \"const p=process.env.CHIARO_HOOK_PATH;if(p)await import((await import('node:url')).pathToFileURL(p).href)\""
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "name": "openchiaro",
+  "version": "0.1.0",
+  "description": "An object-driven collaborative workspace for chip design.",
+  "license": "MIT",
+  "repository": "https://github.com/chiaro2048/openchiaro",
+  "bin": {
+    "openchiaro": "server/cli.mjs"
+  },
+  "files": [
+    "server/",
+    "hooks/",
+    "dist/",
+    "SKILL.md",
+    "references/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n hub,web \"npm:dev:hub\" \"npm:dev:web\"",
+    "dev:hub": "node server/index.mjs",
+    "dev:web": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "copy:skill": "node -e \"const fs=require('node:fs');fs.copyFileSync('skill/SKILL.md','SKILL.md');fs.cpSync('skill/references','references',{recursive:true,force:true})\"",
+    "prepack": "npm run copy:skill",
+    "prepublishOnly": "npm run build && npm run copy:skill"
+  },
+  "dependencies": {
+    "@lydell/node-pty": "1.2.0-beta.15",
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "@excalidraw/excalidraw": "0.18.1",
+    "@types/node": "latest",
+    "@types/react": "18.3.28",
+    "@types/react-dom": "18.3.7",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "concurrently": "10.0.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "typescript": "7.0.2",
+    "vite": "8.2.2"
+  }
+}

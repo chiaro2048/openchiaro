@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="openchiaro">
+  <style>
+    .mark { fill: #c9922a; }
+    @media (prefers-color-scheme: dark) { .mark { fill: #e8be6a; } }
+  </style>
+  <path class="mark" fill-rule="evenodd"
+        d="M50 6 C53 37, 63 47, 94 50 C63 53, 53 63, 50 94 C47 63, 37 53, 6 50 C37 47, 47 37, 50 6 Z
+           M50 39 A11 11 0 1 0 50 61 A11 11 0 1 0 50 39 Z"/>
+</svg>
