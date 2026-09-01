@@ -1,6 +1,6 @@
 {
   "name": "dsh-openchiaro",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenChiaro canvas host for DeepSeek Harness.",
   "type": "module",
   "main": "lib/index.mjs",
@@ -34,7 +34,7 @@
     }
   },
   "dependencies": {
-    "openchiaro": "0.1.0",
+    "openchiaro": "0.2.0",
     "ws": "8.21.3"
   },
   "peerDependencies": {

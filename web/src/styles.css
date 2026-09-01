@@ -100,6 +100,127 @@ body {
   font: inherit;
 }
 
+.settings-trigger {
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  border: 1px solid var(--chiaro-border-strong);
+  border-radius: var(--chiaro-radius-small);
+  color: var(--chiaro-muted);
+  background: var(--chiaro-panel);
+  cursor: pointer;
+  font-size: 17px;
+}
+
+.settings-trigger:hover,
+.settings-trigger:focus-visible {
+  color: var(--chiaro-text);
+  border-color: var(--chiaro-purple);
+}
+
+.settings-backdrop {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(5 7 11 / 72%);
+}
+
+.settings-panel {
+  width: min(640px, 100%);
+  max-height: min(720px, 100%);
+  overflow: auto;
+  border: 1px solid var(--chiaro-border-strong);
+  border-radius: 14px;
+  color: var(--chiaro-text);
+  background: var(--chiaro-panel);
+  box-shadow: var(--chiaro-shadow);
+}
+
+.settings-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--chiaro-border);
+  padding: 18px 20px;
+  background: var(--chiaro-chrome);
+}
+
+.settings-panel h2,
+.settings-panel h3,
+.settings-panel p {
+  margin: 0;
+}
+
+.settings-panel h2 {
+  font-size: 18px;
+}
+
+.settings-panel h3 {
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--chiaro-muted);
+  text-transform: uppercase;
+}
+
+.settings-panel header p,
+.settings-row small {
+  display: block;
+  margin-top: 4px;
+  color: var(--chiaro-muted);
+  font-size: 12px;
+}
+
+.settings-panel header button {
+  border: 0;
+  color: var(--chiaro-muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 24px;
+}
+
+.settings-content {
+  display: grid;
+  gap: 22px;
+  padding: 20px;
+}
+
+.settings-row,
+.settings-about > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-top: 1px solid var(--chiaro-border);
+  padding: 12px 0;
+}
+
+.settings-row input {
+  width: 84px;
+  border: 1px solid var(--chiaro-border-strong);
+  border-radius: var(--chiaro-radius-small);
+  padding: 6px 8px;
+  color: var(--chiaro-text);
+  background: var(--chiaro-terminal);
+  font: inherit;
+}
+
+.settings-about {
+  margin: 0;
+}
+
+.settings-about dt {
+  color: var(--chiaro-muted);
+}
+
+.settings-about dd {
+  overflow-wrap: anywhere;
+  margin: 0;
+  text-align: right;
+}
+
 .topic-empty {
   display: grid;
   flex: 1;

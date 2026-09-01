@@ -11,6 +11,7 @@ import {
   sceneSignature,
   terminalSocketUrl,
 } from "./canvas-logic.mjs";
+import { readSettings, SETTINGS, writeSetting } from "../../web/src/settings.mjs";
 import "./chunk.css";
 
 const h = React.createElement;
@@ -18,6 +19,26 @@ const MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024;
 const BUILD_VERSION = __CHIARO_BUILD_VERSION__;
 
 console.info(`[dsh-openchiaro] 前端构建版本 ${BUILD_VERSION}`);
+
+function storedSettings() {
+  try {
+    return readSettings(window.localStorage);
+  } catch (error) {
+    console.warn("Chiaro 设置读取失败", error);
+    return readSettings();
+  }
+}
+
+const topicStorageKey = (workspaceId) => `dsh.openchiaro.topic.${workspaceId}`;
+
+function storedTopic(workspaceId, topics) {
+  try {
+    const topic = window.localStorage.getItem(topicStorageKey(workspaceId));
+    return topics.includes(topic) ? topic : topics[0] || "";
+  } catch {
+    return topics[0] || "";
+  }
+}
 
 function blobBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -53,7 +74,7 @@ async function requestJson(url, options) {
 
 const queryFor = (workspaceId, topic) => new URLSearchParams({ workspaceId, topic }).toString();
 
-function ChiaroTerminal({ workspace, topic }) {
+function ChiaroTerminal({ fontSize, workspace, topic }) {
   const hostRef = React.useRef(null);
   const [agents, setAgents] = React.useState([]);
   const [agent, setAgent] = React.useState("claude");
@@ -89,7 +110,7 @@ function ChiaroTerminal({ workspace, topic }) {
     const terminal = new Terminal({
       cursorBlink: true,
       fontFamily: 'Consolas, "Cascadia Mono", monospace',
-      fontSize: 13,
+      fontSize,
       theme: { background: "#111827", foreground: "#e5e7eb" },
     });
     const fitAddon = new FitAddon();
@@ -202,7 +223,7 @@ function ChiaroTerminal({ workspace, topic }) {
       socket.close();
       terminal.dispose();
     };
-  }, [session, topic, workspace.id]);
+  }, [fontSize, session, topic, workspace.id]);
 
   const start = async () => {
     setBusy(true);
@@ -256,6 +277,95 @@ function ChiaroTerminal({ workspace, topic }) {
     status ? h("div", { className: "chiaro-terminal-status", role: "status" }, status) : null);
 }
 
+export function ChiaroSettings({ ctx }) {
+  const sessions = React.useSyncExternalStore(
+    (notify) => ctx.sessions.list.subscribe(notify),
+    () => ctx.sessions.list.getSnapshot(),
+  );
+  const cwd = sessions.current ? sessions.byId[sessions.current]?.cwd : undefined;
+  const [info, setInfo] = React.useState(null);
+  const [values, setValues] = React.useState(storedSettings);
+  const [error, setError] = React.useState("");
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    setInfo(null);
+    if (!cwd) {
+      setError("当前 DSH 会话没有 workspace 路径");
+      return () => controller.abort();
+    }
+    void (async () => {
+      try {
+        const [catalog, build] = await Promise.all([
+          requestJson("/api/chiaro/health", { signal: controller.signal, cache: "no-store" }),
+          requestJson("/chiaro/bundle/build-version.json", {
+            signal: controller.signal,
+            cache: "no-store",
+          }),
+        ]);
+        const workspaceId = resolveWorkspaceId(catalog.workspaces, cwd);
+        const health = catalog.workspaceId === workspaceId
+          ? catalog
+          : await requestJson(`/api/chiaro/health?workspaceId=${encodeURIComponent(workspaceId)}`, {
+            signal: controller.signal,
+            cache: "no-store",
+          });
+        const workspace = health.workspaces.find((item) => item.id === workspaceId);
+        const frontendVersion = BUILD_VERSION.split("+", 1)[0];
+        setInfo({
+          buildHash: BUILD_VERSION.split("+", 2)[1] || "开发构建",
+          consistent: health.version === frontendVersion && build.version === BUILD_VERSION,
+          hostVersion: health.version,
+          topic: storedTopic(workspaceId, health.topics),
+          workspace,
+        });
+        setError("");
+      } catch (cause) {
+        if (cause.name !== "AbortError") setError(`Chiaro 信息读取失败：${cause.message}`);
+      }
+    })();
+    return () => controller.abort();
+  }, [cwd]);
+
+  const changeSetting = (setting, value) => {
+    setValues((current) => {
+      let next = value;
+      try {
+        next = writeSetting(window.localStorage, setting, value);
+      } catch (cause) {
+        console.warn(`Chiaro 设置保存失败：${setting.key}`, cause);
+      }
+      return { ...current, [setting.id]: next };
+    });
+  };
+
+  return h("div", { className: "chiaro-settings-section" },
+    h("h2", null, "Chiaro 设置/关于"),
+    h("p", { className: "chiaro-settings-intro" }, "个性化设置只保存在当前浏览器。"),
+    h("section", null,
+      h("h3", null, "通用"),
+      SETTINGS.map((setting) => h("label", { className: "chiaro-settings-row", key: setting.id },
+        h("span", null, h("strong", null, setting.label), h("small", null, setting.description)),
+        h("input", {
+          "aria-label": setting.label,
+          type: "number",
+          min: setting.min,
+          max: setting.max,
+          step: setting.step,
+          value: values[setting.id],
+          onChange: (event) => changeSetting(setting, Number(event.target.value)),
+        })))),
+    info ? h("section", null,
+      h("h3", null, "关于"),
+      h("dl", { className: "chiaro-settings-about" },
+        h("div", null, h("dt", null, "dsh-openchiaro"), h("dd", null, info.hostVersion)),
+        h("div", null, h("dt", null, "构建哈希"), h("dd", null, info.buildHash)),
+        h("div", null, h("dt", null, "host / chunk"), h("dd", null, info.consistent ? "一致" : "不一致")),
+        h("div", null, h("dt", null, "workspace"), h("dd", null, info.workspace?.path || "—")),
+        h("div", null, h("dt", null, "topic"), h("dd", null, info.topic || "—")))) : null,
+    error ? h("p", { className: "chiaro-settings-error", role: "alert" }, error) : null);
+}
+
 export function ChiaroCanvas({ ctx, onClose }) {
   const sessions = React.useSyncExternalStore(
     (notify) => ctx.sessions.list.subscribe(notify),
@@ -272,6 +382,7 @@ export function ChiaroCanvas({ ctx, onClose }) {
   const [snapshot, setSnapshot] = React.useState(null);
   const [error, setError] = React.useState("");
   const [versionError, setVersionError] = React.useState("");
+  const [settingValues] = React.useState(storedSettings);
   const apiRef = React.useRef(null);
   const versionRef = React.useRef(0);
   const signatureRef = React.useRef("");
@@ -337,7 +448,7 @@ export function ChiaroCanvas({ ctx, onClose }) {
     }).then((list) => {
       if (!Array.isArray(list.topics)) throw new Error("服务返回的 topic 列表无效");
       setTopics(list.topics);
-      setTopic(list.topics[0] || "");
+      setTopic(storedTopic(workspace.id, list.topics));
       setTopicsLoaded(true);
       setError("");
     }).catch((cause) => {
@@ -347,6 +458,15 @@ export function ChiaroCanvas({ ctx, onClose }) {
     });
     return () => controller.abort();
   }, [workspace]);
+
+  React.useEffect(() => {
+    if (!workspace || !topic) return;
+    try {
+      window.localStorage.setItem(topicStorageKey(workspace.id), topic);
+    } catch (cause) {
+      console.warn("Chiaro topic 保存失败", cause);
+    }
+  }, [workspace, topic]);
 
   const loadScene = React.useCallback(async ({ external = false, signal } = {}) => {
     if (!workspace || !topic) return;
@@ -552,7 +672,11 @@ export function ChiaroCanvas({ ctx, onClose }) {
                 creatingTopic ? "新建中…" : "新建并打开")),
             error ? h("div", { className: "chiaro-empty-error", role: "alert" }, error) : null)
           : h("div", { className: "chiaro-loading" }, error || "正在加载画布…")),
-      workspace && topic ? h(ChiaroTerminal, { workspace, topic }) : null),
+      workspace && topic ? h(ChiaroTerminal, {
+        fontSize: settingValues.terminalFontSize,
+        workspace,
+        topic,
+      }) : null),
     versionError
       ? h("div", { className: "chiaro-error", role: "alert" }, versionError)
       : error && snapshot ? h("div", { className: "chiaro-error", role: "alert" }, error) : null);

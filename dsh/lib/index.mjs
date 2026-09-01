@@ -38,6 +38,7 @@ const JSON_HEADERS = {
   "cache-control": "no-store",
 };
 const CLIENT_DIR = fileURLToPath(new URL("../client/", import.meta.url));
+const PACKAGE_VERSION = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 const BUNDLES = new Map([
   ["/chiaro/bundle/excalidraw.js", ["excalidraw.js", "text/javascript; charset=utf-8"]],
   ["/chiaro/bundle/excalidraw.css", ["excalidraw.css", "text/css; charset=utf-8"]],
@@ -487,6 +488,7 @@ export function apply(ctx) {
         return sendJson(response, 200, {
           ok: true,
           kind: name,
+          version: PACKAGE_VERSION,
           workspaceId,
           workspaces: workspaces().map(workspaceView),
           topics: await listTopics(workspace.path),

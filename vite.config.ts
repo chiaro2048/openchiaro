@@ -13,6 +13,8 @@ for (const file of [
   "src/main.tsx",
   "src/PetDock.tsx",
   "src/sceneDiff.ts",
+  "src/SettingsPanel.tsx",
+  "src/settings.mjs",
   "src/styles.css",
   "src/TerminalPanel.tsx",
 ]) {

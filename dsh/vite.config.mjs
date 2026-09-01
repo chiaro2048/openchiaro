@@ -8,7 +8,7 @@ import { defineConfig } from "vite";
 const root = path.dirname(fileURLToPath(import.meta.url));
 const packageVersion = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version;
 const buildHash = createHash("sha256");
-for (const file of ["canvas-logic.mjs", "chunk.css", "chunk.jsx", "client.js"]) {
+for (const file of ["canvas-logic.mjs", "chunk.css", "chunk.jsx", "client.js", "../../web/src/settings.mjs"]) {
   buildHash.update(file).update(readFileSync(path.join(root, "client", file)));
 }
 const buildVersion = `${packageVersion}+${buildHash.digest("hex").slice(0, 12)}`;

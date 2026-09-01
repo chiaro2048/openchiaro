@@ -37,7 +37,10 @@ export type AgentState = "away" | "listening" | "working";
 
 export type HubHealth = {
   defaultShell: string;
+  pid: number;
   platform: string;
+  port: number;
+  project: string;
   topic: string;
   topicDir: string;
   version: string;
@@ -216,6 +219,8 @@ export async function loadHealth(): Promise<HubHealth> {
   const body = (await response.json()) as Partial<HubHealth>;
   if (
     typeof body.defaultShell !== "string" || typeof body.platform !== "string" ||
+    !Number.isInteger(body.pid) || !Number.isInteger(body.port) ||
+    typeof body.project !== "string" ||
     typeof body.topic !== "string" || typeof body.topicDir !== "string" ||
     typeof body.version !== "string"
   ) {
@@ -223,7 +228,10 @@ export async function loadHealth(): Promise<HubHealth> {
   }
   return {
     defaultShell: body.defaultShell,
+    pid: body.pid as number,
     platform: body.platform,
+    port: body.port as number,
+    project: body.project,
     topic: body.topic,
     topicDir: body.topicDir,
     version: body.version,

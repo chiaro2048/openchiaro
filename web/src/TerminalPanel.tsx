@@ -32,20 +32,7 @@ type LiveAgentTerm = AgentTermSession & {
 
 const MAX_RECONNECT_ATTEMPTS = 3;
 const MAX_RECONNECT_WINDOW_MS = 6000;
-const FONT_SIZE_STORAGE_KEY = "adw.terminal.fontSize";
-const DEFAULT_FONT_SIZE = 13;
-const MIN_FONT_SIZE = 8;
-const MAX_FONT_SIZE = 32;
 const MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024;
-
-function storedFontSize() {
-  const stored = window.localStorage.getItem(FONT_SIZE_STORAGE_KEY);
-  if (stored === null) return DEFAULT_FONT_SIZE;
-  const value = Number(stored);
-  return Number.isFinite(value)
-    ? Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(value)))
-    : DEFAULT_FONT_SIZE;
-}
 
 function terminalSocketUrl(session: AgentTermSession, topic: string) {
   const url = new URL(`/term/${encodeURIComponent(session.instanceId)}`, window.location.href);
@@ -363,6 +350,8 @@ function TerminalView({
 export function TerminalPanel({
   collapsed,
   focusLabels,
+  fontSize,
+  onFontZoom,
   onResetWidth,
   onResizeBy,
   onResizeStart,
@@ -372,6 +361,8 @@ export function TerminalPanel({
 }: {
   collapsed: boolean;
   focusLabels: string[];
+  fontSize: number;
+  onFontZoom: (delta: number) => void;
   onResetWidth: () => void;
   onResizeBy: (delta: number) => void;
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -383,7 +374,6 @@ export function TerminalPanel({
   const [summaries, setSummaries] = useState<AgentTermSummary[]>([]);
   const [sessions, setSessions] = useState<Record<string, LiveAgentTerm>>({});
   const [currentInstanceId, setCurrentInstanceId] = useState("");
-  const [fontSize, setFontSize] = useState(storedFontSize);
   const [menuOpen, setMenuOpen] = useState(false);
   const [petMenu, setPetMenu] = useState<{ instanceId: string; x: number; y: number } | null>(null);
   const [pendingCloseInstanceId, setPendingCloseInstanceId] = useState("");
@@ -392,14 +382,6 @@ export function TerminalPanel({
   const [agentStates, setAgentStates] = useState<Record<string, AgentState>>({});
   const [injectionNotice, setInjectionNotice] = useState("");
   const [error, setError] = useState("");
-
-  const zoomFont = useCallback((delta: number) => {
-    setFontSize((current) => Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, current + delta)));
-  }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, String(fontSize));
-  }, [fontSize]);
 
   const refreshSummaries = useCallback(async () => {
     const catalog = await loadAgentTerms(topic);
@@ -741,7 +723,7 @@ export function TerminalPanel({
               key={session.instanceId}
               onEnded={markEnded}
               onError={setError}
-              onFontZoom={zoomFont}
+              onFontZoom={onFontZoom}
               onRestart={restartInstance}
               session={session}
               topic={topic}

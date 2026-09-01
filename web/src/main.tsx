@@ -4,6 +4,9 @@ import { createRoot } from "react-dom/client";
 
 import { CanvasPane } from "./CanvasPane";
 import { createTopic, loadHealth, loadTopics } from "./bridge";
+import type { HubHealth } from "./bridge";
+import { SettingsPanel } from "./SettingsPanel";
+import { readSettings, SETTINGS, writeSetting } from "./settings.mjs";
 import { TerminalPanel } from "./TerminalPanel";
 import "./styles.css";
 
@@ -40,12 +43,22 @@ function storedSidebarWidth() {
   }
 }
 
+function storedSettings() {
+  try {
+    return readSettings(window.localStorage);
+  } catch (error) {
+    console.warn("设置读取失败", error);
+    return readSettings();
+  }
+}
+
 function App() {
   const [requestedTopic] = useState(() => new URLSearchParams(window.location.search).get("topic"));
   const [hubIdentity, setHubIdentity] = useState<{
     error?: string;
     checked: boolean;
   }>({ checked: false });
+  const [health, setHealth] = useState<HubHealth | null>(null);
   const [topics, setTopics] = useState<string[]>([]);
   const [topic, setTopic] = useState("");
   const [newTopic, setNewTopic] = useState("");
@@ -54,6 +67,8 @@ function App() {
   const [focusLabels, setFocusLabels] = useState<string[]>([]);
   const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [settings, setSettings] = useState<Record<string, number>>(storedSettings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,6 +83,7 @@ function App() {
         : (catalog.topics.includes(health.topic) ? health.topic : catalog.topics[0] || "");
       setTopics(catalog.topics);
       setTopic(selected);
+      setHealth(health);
       setHubIdentity({ checked: true });
     }).catch((error) => {
       if (!cancelled) setHubIdentity({ error: error.message, checked: true });
@@ -93,6 +109,34 @@ function App() {
 
   const resizeSidebarBy = (delta: number) => {
     setSidebarWidth((current) => clampSidebarWidth(current + delta));
+  };
+
+  const changeSetting = (id: string, value: number) => {
+    const definition = SETTINGS.find((setting) => setting.id === id);
+    if (!definition) return;
+    setSettings((current) => {
+      let next = value;
+      try {
+        next = writeSetting(window.localStorage, definition, value);
+      } catch (error) {
+        console.warn(`设置保存失败：${definition.key}`, error);
+      }
+      return { ...current, [id]: next };
+    });
+  };
+
+  const changeSettingBy = (id: string, delta: number) => {
+    const definition = SETTINGS.find((setting) => setting.id === id);
+    if (!definition) return;
+    setSettings((current) => {
+      let next = current[id] + delta;
+      try {
+        next = writeSetting(window.localStorage, definition, next);
+      } catch (error) {
+        console.warn(`设置保存失败：${definition.key}`, error);
+      }
+      return { ...current, [id]: next };
+    });
   };
 
   const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -164,6 +208,15 @@ function App() {
               {topics.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </label>
+          <button
+            aria-label="打开设置"
+            className="settings-trigger"
+            onClick={() => setSettingsOpen(true)}
+            title="设置"
+            type="button"
+          >
+            ⚙
+          </button>
         </header>
         {topic ? (
           <CanvasPane
@@ -200,13 +253,25 @@ function App() {
         <TerminalPanel
           collapsed={sidebarCollapsed}
           focusLabels={focusLabels}
+          fontSize={settings.terminalFontSize}
           key={topic}
           onResetWidth={() => setSidebarWidth(clampSidebarWidth(DEFAULT_SIDEBAR_WIDTH))}
           onResizeBy={resizeSidebarBy}
           onResizeStart={startSidebarResize}
+          onFontZoom={(delta) => changeSettingBy("terminalFontSize", delta)}
           onToggleCollapse={() => setSidebarCollapsed((current) => !current)}
           topic={topic}
           width={sidebarWidth}
+        />
+      )}
+      {settingsOpen && health && (
+        <SettingsPanel
+          buildVersion={BUILD_VERSION}
+          health={health}
+          onChange={changeSetting}
+          onClose={() => setSettingsOpen(false)}
+          topic={topic}
+          values={settings}
         />
       )}
     </main>

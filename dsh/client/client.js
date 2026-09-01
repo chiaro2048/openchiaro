@@ -77,6 +77,23 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function ChiaroSettingsSection({ ctx }) {
+      const [Settings, setSettings] = React.useState()
+      const [error, setError] = React.useState('')
+      React.useEffect(() => {
+        let disposed = false
+        void loadChunk(ctx).then((loaded) => {
+          if (!disposed) setSettings(() => loaded.ChiaroSettings)
+        }).catch((cause) => {
+          if (!disposed) setError(cause.message)
+        })
+        return () => { disposed = true }
+      }, [ctx])
+      return Settings
+        ? h(Settings, { ctx })
+        : h('div', { role: error ? 'alert' : 'status' }, error || '正在加载 Chiaro 设置…')
+    }
+
     function ChiaroNav() {
       return h('button', {
         type: 'button',
@@ -95,6 +112,10 @@ window.__ModuleLoader__.load({
       ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
         name: 'sidebar.footer.action', id: 'dsh-openchiaro-nav', order: 110, label: () => 'Chiaro',
       }, ChiaroNav))
+      ctx.slots.inject('settings.section', () => ctx.slots.register({
+        name: 'settings.section', id: 'dsh-openchiaro-settings', order: 110,
+        label: () => 'Chiaro 设置/关于',
+      }, () => h(ChiaroSettingsSection, { ctx })))
     }
     return module.exports
   },
