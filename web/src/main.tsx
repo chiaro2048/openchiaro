@@ -233,6 +233,7 @@ function App() {
             key={topic}
             onApiReady={() => {}}
             onFocusChange={setFocusLabels}
+            theme={settings.theme}
             topic={topic}
           />
         ) : (
@@ -270,6 +271,7 @@ function App() {
           onResizeStart={startSidebarResize}
           onFontZoom={(delta) => changeSettingBy("terminalFontSize", delta)}
           onToggleCollapse={() => setSidebarCollapsed((current) => !current)}
+          theme={settings.theme}
           topic={topic}
           width={sidebarWidth}
         />

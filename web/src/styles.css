@@ -715,7 +715,7 @@ body {
   min-height: 0;
   flex: 1;
   overflow: hidden;
-  background: var(--chiaro-terminal);
+  background: #12151d;
 }
 
 .terminal-empty {
@@ -724,7 +724,7 @@ body {
   margin: 0;
   place-items: center;
   padding: 24px;
-  color: var(--chiaro-muted);
+  color: #8f96a8;
   text-align: center;
 }
 
@@ -759,17 +759,17 @@ body {
   display: grid;
   place-content: center;
   gap: 12px;
-  color: var(--chiaro-text);
-  background: color-mix(in srgb, var(--chiaro-terminal) 90%, transparent);
+  color: #e7ecf6;
+  background: rgb(18 21 29 / 90%);
   text-align: center;
 }
 
 .terminal-ended-overlay button {
-  border: 1px solid var(--chiaro-purple);
+  border: 1px solid #7e82d6;
   border-radius: var(--chiaro-radius-small);
   padding: 7px 12px;
-  color: var(--chiaro-text);
-  background: color-mix(in srgb, var(--chiaro-purple) 28%, var(--chiaro-panel));
+  color: #e7ecf6;
+  background: color-mix(in srgb, #7e82d6 28%, #1b1f29);
   cursor: pointer;
 }
 
