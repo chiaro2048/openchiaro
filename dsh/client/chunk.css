@@ -1,0 +1,11 @@
+.chiaro-page{position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;background:#f7f8fa;color:#1f2937;font:14px/1.4 system-ui,"Microsoft YaHei UI",sans-serif}
+.chiaro-page *{box-sizing:border-box}
+.chiaro-toolbar{height:48px;flex:none;display:flex;align-items:center;gap:12px;padding:0 14px;background:#fff;border-bottom:1px solid #dfe3e8}
+.chiaro-toolbar strong{font-size:16px}
+.chiaro-workspace{color:#667085;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chiaro-toolbar select{min-width:160px;padding:5px 28px 5px 8px;border:1px solid #cfd5dd;border-radius:6px;background:#fff}
+.chiaro-toolbar button{margin-left:auto;padding:5px 12px;border:1px solid #cfd5dd;border-radius:6px;background:#fff;cursor:pointer}
+.chiaro-canvas{position:relative;min-height:0;flex:1}
+.chiaro-canvas>.excalidraw{height:100%}
+.chiaro-loading{height:100%;display:grid;place-items:center;color:#667085}
+.chiaro-error{position:absolute;left:16px;bottom:16px;z-index:10;max-width:min(680px,calc(100vw - 32px));padding:8px 12px;border:1px solid #f0b7b7;border-radius:7px;background:#fff1f1;color:#9b1c1c;box-shadow:0 2px 8px #0002}

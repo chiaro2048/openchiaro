@@ -26,7 +26,7 @@
     "dev": "concurrently -k -n hub,web \"npm:dev:hub\" \"npm:dev:web\"",
     "dev:hub": "node server/index.mjs",
     "dev:web": "vite --host 127.0.0.1",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && vite build --config dsh/vite.config.mjs",
     "copy:skill": "node -e \"const fs=require('node:fs');fs.copyFileSync('skill/SKILL.md','SKILL.md');fs.cpSync('skill/references','references',{recursive:true,force:true})\"",
     "prepack": "npm run copy:skill",
     "prepublishOnly": "npm run build && npm run copy:skill"
