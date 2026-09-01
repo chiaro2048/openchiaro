@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -22,7 +22,7 @@ const [canvas, eventLog, focus, paths, term] = await Promise.all([
 const { createCanvasStore, VersionConflictError } = canvas;
 const { createEventLog } = eventLog;
 const { writeFocus } = focus;
-const { assertTopic, scaffoldTopic, topicPaths } = paths;
+const { assertTopic, listTopics, listTopicsSync, scaffoldTopic, topicPaths } = paths;
 const { createTermManager } = term;
 
 export const name = "dsh-openchiaro";
@@ -100,47 +100,6 @@ function rejectUpgrade(socket, statusCode, reason) {
     "",
     body,
   ].join("\r\n"));
-}
-
-async function listTopics(workspacePath) {
-  try {
-    const entries = await readdir(path.join(workspacePath, "chiaro"), { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .filter((topic) => {
-        try {
-          assertTopic(topic);
-          return true;
-        } catch {
-          return false;
-        }
-      })
-      .sort();
-  } catch (error) {
-    if (error.code === "ENOENT") return [];
-    throw error;
-  }
-}
-
-function listTopicsSync(workspacePath) {
-  try {
-    return readdirSync(path.join(workspacePath, "chiaro"), { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .filter((topic) => {
-        try {
-          assertTopic(topic);
-          return true;
-        } catch {
-          return false;
-        }
-      })
-      .sort();
-  } catch (error) {
-    if (error.code === "ENOENT") return [];
-    throw error;
-  }
 }
 
 function workspaceContains(workspacePath, cwd) {

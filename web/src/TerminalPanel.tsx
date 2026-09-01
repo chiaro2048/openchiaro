@@ -44,10 +44,11 @@ function storedFontSize() {
     : DEFAULT_FONT_SIZE;
 }
 
-function terminalSocketUrl(session: AgentTermSession) {
+function terminalSocketUrl(session: AgentTermSession, topic: string) {
   const url = new URL(`/term/${encodeURIComponent(session.instanceId)}`, window.location.href);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.searchParams.set("cap", session.capability);
+  url.searchParams.set("topic", topic);
   return url.toString();
 }
 
@@ -58,6 +59,7 @@ function TerminalView({
   onFontZoom,
   onRestart,
   session,
+  topic,
 }: {
   active: boolean;
   fontSize: number;
@@ -65,6 +67,7 @@ function TerminalView({
   onFontZoom: (delta: number) => void;
   onRestart: (instanceId: string, agent: string) => Promise<void>;
   session: LiveAgentTerm;
+  topic: string;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -193,7 +196,7 @@ function TerminalView({
     };
     const connect = () => {
       if (stopped) return;
-      const socket = new WebSocket(terminalSocketUrl(session));
+      const socket = new WebSocket(terminalSocketUrl(session, topic));
       socket.binaryType = "arraybuffer";
       socketRef.current = socket;
       socket.onopen = () => {
@@ -222,7 +225,7 @@ function TerminalView({
       socket.onclose = async () => {
         if (stopped) return;
         try {
-          const summary = (await loadAgentTerms(AbortSignal.timeout(750)))
+          const summary = (await loadAgentTerms(topic, AbortSignal.timeout(750)))
             .instances.find(({ instanceId }) => instanceId === session.instanceId);
           if (summary?.alive) reconnect();
           else {
@@ -244,7 +247,7 @@ function TerminalView({
       socketRef.current = null;
       socket?.close();
     };
-  }, [onEnded, scheduleFit, session.capability, session.instanceId]);
+  }, [onEnded, scheduleFit, session.capability, session.instanceId, topic]);
 
   const restart = async () => {
     setRestarting(true);
@@ -332,7 +335,7 @@ export function TerminalPanel({
   }, [fontSize]);
 
   const refreshSummaries = useCallback(async () => {
-    const catalog = await loadAgentTerms();
+    const catalog = await loadAgentTerms(topic);
     setAgentTypes(catalog.agents);
     setSummaries(catalog.instances);
     setAgentStates((current) => {
@@ -345,12 +348,12 @@ export function TerminalPanel({
       return states;
     });
     return catalog;
-  }, []);
+  }, [topic]);
 
   const launchAgent = useCallback(async (agent: string) => {
     setBusyAgent(agent);
     try {
-      const session = await postAgentTerm(agent);
+      const session = await postAgentTerm(topic, agent);
       const { instances } = await refreshSummaries();
       const summary = instances.find((item) => item.instanceId === session.instanceId);
       setSessions((current) => ({
@@ -372,12 +375,12 @@ export function TerminalPanel({
     } finally {
       setBusyAgent("");
     }
-  }, [refreshSummaries]);
+  }, [refreshSummaries, topic]);
 
   const resumeInstance = useCallback(async (instanceId: string) => {
     setBusyAgent(instanceId);
     try {
-      const session = await resumeAgentTerm(instanceId);
+      const session = await resumeAgentTerm(topic, instanceId);
       const { instances } = await refreshSummaries();
       const summary = instances.find((item) => item.instanceId === instanceId);
       if (!summary) throw new Error(`Hub 未返回实例：${instanceId}`);
@@ -394,11 +397,12 @@ export function TerminalPanel({
     } finally {
       setBusyAgent("");
     }
-  }, [refreshSummaries]);
+  }, [refreshSummaries, topic]);
 
   useEffect(() => {
     let noticeTimer: number | undefined;
     const disconnect = connectAgentStateEvents(
+      topic,
       (event) => {
         setAgentStates((current) => ({ ...current, [event.instanceId]: event.state }));
       },
@@ -413,7 +417,7 @@ export function TerminalPanel({
       disconnect();
       if (noticeTimer !== undefined) window.clearTimeout(noticeTimer);
     };
-  }, []);
+  }, [topic]);
 
   useEffect(() => {
     let cancelled = false;
@@ -421,7 +425,7 @@ export function TerminalPanel({
       const alive = instances.filter((item) => item.alive);
       const restored = await Promise.all(alive.map(async (item) => ({
         item,
-        session: await resumeAgentTerm(item.instanceId),
+        session: await resumeAgentTerm(topic, item.instanceId),
       })));
       if (cancelled) return;
       const next: Record<string, LiveAgentTerm> = {};
@@ -434,7 +438,7 @@ export function TerminalPanel({
       if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
     });
     return () => { cancelled = true; };
-  }, [refreshSummaries]);
+  }, [refreshSummaries, topic]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -491,7 +495,7 @@ export function TerminalPanel({
     if (!instanceId) return;
     setClosingInstanceId(instanceId);
     try {
-      await deleteAgentTerm(instanceId);
+      await deleteAgentTerm(topic, instanceId);
       setSessions((current) => Object.fromEntries(
         Object.entries(current).filter(([key]) => key !== instanceId),
       ));
@@ -672,6 +676,7 @@ export function TerminalPanel({
               onFontZoom={zoomFont}
               onRestart={restartInstance}
               session={session}
+              topic={topic}
             />
           ))}
         </div>

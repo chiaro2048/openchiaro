@@ -43,6 +43,8 @@ export type HubHealth = {
   version: string;
 };
 
+export type TopicCatalog = { topic: string; topics: string[] };
+
 export type GestureOperation = {
   type: "moved" | "added" | "deleted";
   id: string;
@@ -65,8 +67,14 @@ async function responseError(response: Response): Promise<Error> {
   }
 }
 
-export async function loadScene(): Promise<SceneSnapshot> {
-  const response = await fetch("/api/scene");
+function topicPath(pathname: string, topic: string): string {
+  const url = new URL(pathname, window.location.origin);
+  url.searchParams.set("topic", topic);
+  return `${url.pathname}${url.search}`;
+}
+
+export async function loadScene(topic: string): Promise<SceneSnapshot> {
+  const response = await fetch(topicPath("/api/scene", topic));
   if (!response.ok) throw await responseError(response);
   const snapshot = (await response.json()) as SceneSnapshot;
   if (
@@ -78,8 +86,8 @@ export async function loadScene(): Promise<SceneSnapshot> {
   return snapshot;
 }
 
-export async function postScene(rawScene: string, baseVersion: number): Promise<number> {
-  const response = await fetch("/api/scene", {
+export async function postScene(topic: string, rawScene: string, baseVersion: number): Promise<number> {
+  const response = await fetch(topicPath("/api/scene", topic), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ baseVersion, scene: JSON.parse(rawScene) }),
@@ -94,8 +102,8 @@ export async function postScene(rawScene: string, baseVersion: number): Promise<
   return body.version as number;
 }
 
-export async function postFocus(ids: string[], labels: string[]): Promise<void> {
-  const response = await fetch("/api/focus", {
+export async function postFocus(topic: string, ids: string[], labels: string[]): Promise<void> {
+  const response = await fetch(topicPath("/api/focus", topic), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ ids, labels }),
@@ -103,8 +111,8 @@ export async function postFocus(ids: string[], labels: string[]): Promise<void> 
   if (!response.ok) throw await responseError(response);
 }
 
-export async function loadAgentTerms(signal?: AbortSignal): Promise<AgentTermCatalog> {
-  const response = await fetch("/api/agent-term", { cache: "no-store", signal });
+export async function loadAgentTerms(topic: string, signal?: AbortSignal): Promise<AgentTermCatalog> {
+  const response = await fetch(topicPath("/api/agent-term", topic), { cache: "no-store", signal });
   if (!response.ok) throw await responseError(response);
   const catalog = (await response.json()) as AgentTermCatalog;
   if (!Array.isArray(catalog?.agents) || catalog.agents.some((entry) => (
@@ -121,8 +129,8 @@ export async function loadAgentTerms(signal?: AbortSignal): Promise<AgentTermCat
   return catalog;
 }
 
-export async function postAgentTerm(agent: string): Promise<AgentTermSession> {
-  const response = await fetch("/api/agent-term", {
+export async function postAgentTerm(topic: string, agent: string): Promise<AgentTermSession> {
+  const response = await fetch(topicPath("/api/agent-term", topic), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ agent }),
@@ -138,8 +146,8 @@ export async function postAgentTerm(agent: string): Promise<AgentTermSession> {
   return session;
 }
 
-export async function resumeAgentTerm(instanceId: string): Promise<AgentTermSession> {
-  const response = await fetch(`/api/agent-term/${encodeURIComponent(instanceId)}`, {
+export async function resumeAgentTerm(topic: string, instanceId: string): Promise<AgentTermSession> {
+  const response = await fetch(topicPath(`/api/agent-term/${encodeURIComponent(instanceId)}`, topic), {
     method: "POST",
     headers: { "content-type": "application/json" },
   });
@@ -154,8 +162,8 @@ export async function resumeAgentTerm(instanceId: string): Promise<AgentTermSess
   return session;
 }
 
-export async function deleteAgentTerm(instanceId: string): Promise<void> {
-  const response = await fetch(`/api/agent-term/${encodeURIComponent(instanceId)}`, {
+export async function deleteAgentTerm(topic: string, instanceId: string): Promise<void> {
+  const response = await fetch(topicPath(`/api/agent-term/${encodeURIComponent(instanceId)}`, topic), {
     method: "DELETE",
     headers: { "content-type": "application/json" },
   });
@@ -182,11 +190,37 @@ export async function loadHealth(): Promise<HubHealth> {
   };
 }
 
+export async function loadTopics(): Promise<TopicCatalog> {
+  const response = await fetch("/api/topics", { cache: "no-store" });
+  if (!response.ok) throw await responseError(response);
+  const body = (await response.json()) as Partial<TopicCatalog>;
+  if (typeof body.topic !== "string" || !Array.isArray(body.topics)
+      || body.topics.some((entry) => typeof entry !== "string")) {
+    throw new Error("Hub 未返回有效 topic 列表");
+  }
+  return { topic: body.topic, topics: body.topics };
+}
+
+export async function createTopic(topic: string): Promise<TopicCatalog> {
+  const response = await fetch("/api/topics", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ topic }),
+  });
+  if (!response.ok) throw await responseError(response);
+  const body = (await response.json()) as Partial<TopicCatalog>;
+  if (typeof body.topic !== "string" || !Array.isArray(body.topics)) {
+    throw new Error("Hub 未返回有效 topic 列表");
+  }
+  return { topic: body.topic, topics: body.topics };
+}
+
 export async function postGesture(
+  topic: string,
   operations: GestureOperation[],
   summary: string,
 ): Promise<void> {
-  const response = await fetch("/api/gesture", {
+  const response = await fetch(topicPath("/api/gesture", topic), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ operations, summary }),
@@ -209,6 +243,7 @@ export type FocusInjectionEvent = {
 };
 
 function connectHubSocket(
+  topic: string,
   handleMessage: (message: { type?: string } & Record<string, unknown>) => void,
   onParseError: () => void,
   onDown: (message: string) => void,
@@ -221,7 +256,7 @@ function connectHubSocket(
   let retryTimer: number | undefined;
 
   const open = () => {
-    socket = new WebSocket(`${protocol}://${location.host}/ws`);
+    socket = new WebSocket(`${protocol}://${location.host}${topicPath("/ws", topic)}`);
     socket.onopen = () => {
       if (attempts > 0) onReconnect();
       attempts = 0;
@@ -253,10 +288,12 @@ function connectHubSocket(
 }
 
 export function connectAgentStateEvents(
+  topic: string,
   onEvent: (event: AgentStateEvent) => void,
   onInjection: (event: FocusInjectionEvent) => void = () => {},
 ): () => void {
   return connectHubSocket(
+    topic,
     (message) => {
       if (message.type === "agent-state") onEvent(message as unknown as AgentStateEvent);
       if (message.type === "focus-injection") {
@@ -270,10 +307,12 @@ export function connectAgentStateEvents(
 }
 
 export function connectCanvasUpdates(
+  topic: string,
   onUpdate: () => void,
   onError: (message: string) => void,
 ): () => void {
   return connectHubSocket(
+    topic,
     (message) => {
       if (message.type === "canvas-updated") onUpdate();
     },

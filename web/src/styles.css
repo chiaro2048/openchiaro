@@ -61,6 +61,65 @@ body {
   position: relative;
   flex: 1;
   min-width: 0;
+  min-height: 0;
+}
+
+.canvas-shell {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.topic-bar {
+  z-index: 7;
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  border-bottom: 1px solid var(--chiaro-border);
+  padding: 7px 12px;
+  color: var(--chiaro-text);
+  background: var(--chiaro-chrome);
+}
+
+.topic-bar label,
+.topic-empty label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.topic-bar select,
+.topic-empty input,
+.topic-empty button {
+  border: 1px solid var(--chiaro-border-strong);
+  border-radius: var(--chiaro-radius-small);
+  padding: 6px 9px;
+  color: var(--chiaro-text);
+  background: var(--chiaro-panel);
+  font: inherit;
+}
+
+.topic-empty {
+  display: grid;
+  flex: 1;
+  place-content: center;
+  gap: 16px;
+  padding: 32px;
+  color: var(--chiaro-text);
+  background: var(--chiaro-panel);
+  text-align: center;
+}
+
+.topic-empty form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.topic-empty p {
+  margin: 0;
+  color: var(--chiaro-danger);
 }
 
 .canvas-fatal {

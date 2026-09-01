@@ -14,7 +14,7 @@ import {
   readHubRecord,
   releaseHubLock,
 } from "./hub-lock.mjs";
-import { assertTopic, scaffoldTopic } from "./paths.mjs";
+import { assertTopic, listTopics, scaffoldTopic, topicPaths } from "./paths.mjs";
 import { createTermManager, defaultShell } from "./term.mjs";
 
 class HttpError extends Error {
@@ -297,55 +297,116 @@ async function main() {
     agentsPathRequired,
   } = parseArgs(process.argv.slice(2));
   const topicFs = await scaffoldTopic(project, topic);
-  const agentSessions = await createAgentSessionRegistry(topicFs.agentSessions);
-  const terms = await createTermManager({
-    project,
-    topic,
-    port,
-    selectionPath: topicFs.selection,
-    agentsPath,
-    agentsPathRequired,
-    agentSessions,
-    onAgentState: (instanceId, agent, state) => setAgentState(instanceId, agent, state),
-  });
-  const lockRecord = await acquireHubLock(topicFs.hubLock, {
-    topic,
-    topicDir: topicFs.dir,
-    port,
-  });
-  const canvas = topicFs.canvas;
-  const eventLog = await createEventLog(topicFs.log);
-  const clients = new Set();
-  const broadcast = (payload) => {
+  const canvasStores = new Map();
+  const eventLogs = new Map();
+  const termManagers = new Map();
+  const agentStates = new Map();
+  const clients = new Map();
+
+  const broadcast = (selectedTopic, payload) => {
     const message = JSON.stringify(payload);
-    for (const client of clients) {
+    for (const client of clients.get(selectedTopic) ?? []) {
       if (client.readyState === client.OPEN) client.send(message);
     }
   };
-  const canvasStore = await createCanvasStore(canvas, () => {
-    broadcast({ type: "canvas-updated" });
-  });
-  const agentStates = new Map();
 
-  function setAgentState(instanceId, agent, state) {
+  function setAgentState(selectedTopic, instanceId, agent, state) {
     if (!instanceId) return;
+    const states = agentStates.get(selectedTopic) ?? new Map();
+    agentStates.set(selectedTopic, states);
     if (state === null) {
-      agentStates.delete(instanceId);
+      states.delete(instanceId);
       return;
     }
-    if (agentStates.get(instanceId)?.state === state) return;
-    agentStates.set(instanceId, { agent, state });
-    broadcast({ type: "agent-state", instanceId, agent, state });
+    if (states.get(instanceId)?.state === state) return;
+    states.set(instanceId, { agent, state });
+    broadcast(selectedTopic, { type: "agent-state", instanceId, agent, state });
   }
 
-  async function currentFocusLabels() {
+  async function currentFocusLabels(paths) {
     try {
-      const raw = await readFile(topicFs.selection, "utf8");
+      const raw = await readFile(paths.selection, "utf8");
       const selection = JSON.parse(raw);
       return Array.isArray(selection.labels) ? selection.labels : [];
     } catch {
       return [];
     }
+  }
+
+  async function resolveTopic(url) {
+    const requested = url.searchParams.get("topic");
+    if (requested === null) return topic;
+    try {
+      assertTopic(requested);
+    } catch (error) {
+      throw new HttpError(400, error.message);
+    }
+    if (!(await listTopics(project)).includes(requested)) {
+      throw new HttpError(404, `topic 不存在：${requested}`);
+    }
+    return requested;
+  }
+
+  async function canvasFor(selectedTopic) {
+    let pending = canvasStores.get(selectedTopic);
+    if (!pending) {
+      pending = createCanvasStore(topicPaths(project, selectedTopic).canvas, () => {
+        broadcast(selectedTopic, { type: "canvas-updated" });
+      });
+      canvasStores.set(selectedTopic, pending);
+      pending.catch(() => canvasStores.delete(selectedTopic));
+    }
+    return pending;
+  }
+
+  async function eventLogFor(selectedTopic) {
+    let pending = eventLogs.get(selectedTopic);
+    if (!pending) {
+      pending = createEventLog(topicPaths(project, selectedTopic).log);
+      eventLogs.set(selectedTopic, pending);
+      pending.catch(() => eventLogs.delete(selectedTopic));
+    }
+    return pending;
+  }
+
+  async function termFor(selectedTopic) {
+    let pending = termManagers.get(selectedTopic);
+    if (!pending) {
+      pending = (async () => {
+        const paths = await scaffoldTopic(project, selectedTopic);
+        const manager = await createTermManager({
+          project,
+          topic: selectedTopic,
+          port,
+          selectionPath: paths.selection,
+          agentsPath,
+          agentsPathRequired,
+          agentSessions: await createAgentSessionRegistry(paths.agentSessions),
+          onAgentState: (instanceId, agent, state) => (
+            setAgentState(selectedTopic, instanceId, agent, state)
+          ),
+        });
+        return { manager, paths, eventLog: await eventLogFor(selectedTopic), topic: selectedTopic };
+      })();
+      termManagers.set(selectedTopic, pending);
+      pending.catch(() => termManagers.delete(selectedTopic));
+    }
+    return pending;
+  }
+
+  const { manager: terms } = await termFor(topic);
+  const lockRecord = await acquireHubLock(topicFs.hubLock, {
+    topic,
+    topicDir: topicFs.dir,
+    port,
+  });
+  let canvasStore;
+  try {
+    canvasStore = await canvasFor(topic);
+  } catch (error) {
+    await terms.close();
+    await releaseHubLock(topicFs.hubLock, lockRecord);
+    throw error;
   }
 
 
@@ -375,24 +436,58 @@ async function main() {
         return;
       }
 
+      if (request.method === "GET" && pathname === "/api/topics") {
+        sendJson(response, 200, { topic, topics: await listTopics(project) });
+        return;
+      }
+
+      if (request.method === "POST" && pathname === "/api/topics") {
+        const body = parseJson(await readBody(request));
+        if (!body || typeof body !== "object" || Array.isArray(body)
+            || Object.keys(body).some((key) => key !== "topic")
+            || typeof body.topic !== "string" || !body.topic) {
+          throw new HttpError(400, "需要 {topic}");
+        }
+        try {
+          assertTopic(body.topic);
+        } catch (error) {
+          throw new HttpError(400, error.message);
+        }
+        await scaffoldTopic(project, body.topic);
+        sendJson(response, 201, {
+          ok: true,
+          topic: body.topic,
+          topics: await listTopics(project),
+        });
+        return;
+      }
+
+      if (await serveStatic(request, response, pathname, staticDir)) return;
+
+      const selectedTopic = await resolveTopic(url);
+      const selectedPaths = topicPaths(project, selectedTopic);
+
       if (request.method === "POST" && pathname === "/api/agent-term") {
         const body = parseJson(await readBody(request));
         if (!body || typeof body !== "object" || Array.isArray(body)
             || Object.keys(body).some((key) => key !== "agent")) {
           throw new HttpError(400, "请求体只能包含 agent");
         }
-        sendJson(response, 200, await terms.spawnAgent(parseAgent(body.agent)));
+        const { manager } = await termFor(selectedTopic);
+        sendJson(response, 200, await manager.spawnAgent(parseAgent(body.agent)));
         return;
       }
 
       if (request.method === "GET" && pathname === "/api/agent-term") {
-        sendJson(response, 200, terms.listAgentTerms());
+        const { manager } = await termFor(selectedTopic);
+        sendJson(response, 200, manager.listAgentTerms());
         return;
       }
 
       const agentTermInstance = pathname.match(/^\/api\/agent-term\/([^/]+)$/);
       if (request.method === "POST" && agentTermInstance) {
-        sendJson(response, 200, await terms.resumeAgent(decodeURIComponent(agentTermInstance[1])));
+        const { manager } = await termFor(selectedTopic);
+        sendJson(response, 200, await manager.resumeAgent(decodeURIComponent(agentTermInstance[1])));
         return;
       }
 
@@ -420,7 +515,12 @@ async function main() {
           throw new HttpError(400, "需要 {type:prompt|stop, agent, termId, sessionId, text}");
         }
         const agent = parseAgent(body.agent);
-        if (!terms.authorizeHook(
+        const settled = await Promise.allSettled(termManagers.values());
+        const entry = settled
+          .filter((result) => result.status === "fulfilled")
+          .map((result) => result.value)
+          .find(({ manager }) => manager.has(body.termId));
+        if (!entry?.manager.authorizeHook(
           body.termId,
           agent,
           request.headers["x-chiaro-hook-secret"],
@@ -429,26 +529,26 @@ async function main() {
         }
 
         const record = body.type === "prompt"
-          ? await eventLog.append({
+          ? await entry.eventLog.append({
             actor: "user",
             kind: "user_msg",
             text: body.text,
-            focus: await currentFocusLabels(),
+            focus: await currentFocusLabels(entry.paths),
             recipients: [agent],
             termId: body.termId,
             sessionId: body.sessionId,
           })
-          : body.text ? await eventLog.append({
+          : body.text ? await entry.eventLog.append({
             actor: agent,
             kind: "agent_msg",
             text: body.text,
             termId: body.termId,
             sessionId: body.sessionId,
           }) : null;
-        await terms.recordProviderSession(body.termId, body.sessionId);
-        setAgentState(body.termId, agent, body.type === "prompt" ? "working" : "listening");
+        await entry.manager.recordProviderSession(body.termId, body.sessionId);
+        setAgentState(entry.topic, body.termId, agent, body.type === "prompt" ? "working" : "listening");
         if (body.type === "prompt" && injection) {
-          broadcast({ type: "focus-injection", agent, ...injection });
+          broadcast(entry.topic, { type: "focus-injection", agent, ...injection });
         }
         sendJson(response, 200, { ok: true, seq: record?.seq ?? null });
         return;
@@ -457,7 +557,8 @@ async function main() {
       const agentTermDelete = pathname.match(/^\/api\/agent-term\/([^/]+)$/);
       if (request.method === "DELETE" && agentTermDelete) {
         const instanceId = decodeURIComponent(agentTermDelete[1]);
-        if (!await terms.deleteInstance(instanceId)) {
+        const { manager } = await termFor(selectedTopic);
+        if (!await manager.deleteInstance(instanceId)) {
           throw new HttpError(404, `agent instance not found: ${instanceId}`);
         }
         sendJson(response, 200, { ok: true });
@@ -465,7 +566,7 @@ async function main() {
       }
 
       if (request.method === "GET" && pathname === "/api/scene") {
-        const { raw, version } = await canvasStore.read();
+        const { raw, version } = await (await canvasFor(selectedTopic)).read();
         sendJson(response, 200, { scene: JSON.parse(raw), version });
         return;
       }
@@ -475,13 +576,14 @@ async function main() {
         if (!body || typeof body !== "object" || !body.scene) {
           throw new HttpError(400, "需要 {baseVersion, scene}");
         }
-        const version = await canvasStore.write(JSON.stringify(body.scene), body.baseVersion);
+        const version = await (await canvasFor(selectedTopic))
+          .write(JSON.stringify(body.scene), body.baseVersion);
         sendJson(response, 200, { ok: true, version });
         return;
       }
 
       if (request.method === "POST" && pathname === "/api/focus") {
-        const selection = await writeFocus(topicFs.contextDir, parseJson(await readBody(request)));
+        const selection = await writeFocus(selectedPaths.contextDir, parseJson(await readBody(request)));
         sendJson(response, 200, selection);
         return;
       }
@@ -501,7 +603,7 @@ async function main() {
         const summary = typeof body.summary === "string" && body.summary.trim()
           ? body.summary.trim().slice(0, 4000)
           : gestureSummary(operations).slice(0, 4000);
-        const event = await eventLog.append({
+        const event = await (await eventLogFor(selectedTopic)).append({
           actor: "user",
           kind: "user_canvas_op",
           operations,
@@ -512,11 +614,10 @@ async function main() {
       }
 
       if (pathname.startsWith("/files/") || pathname.startsWith("/pages/")) {
-        if (await serveTopicFile(request, response, pathname, topicFs.dir)) return;
+        if (await serveTopicFile(request, response, pathname, selectedPaths.dir)) return;
         sendJson(response, 404, { error: "文件不存在" });
         return;
       }
-      if (await serveStatic(request, response, pathname, staticDir)) return;
       sendJson(response, 404, { error: "接口不存在" });
     } catch (error) {
       if (error instanceof VersionConflictError) {
@@ -532,13 +633,6 @@ async function main() {
 
   const wsServer = new WebSocketServer({ noServer: true });
   const termWsServer = new WebSocketServer({ noServer: true });
-  wsServer.on("connection", (socket) => {
-    clients.add(socket);
-    for (const [instanceId, { agent, state }] of agentStates) {
-      socket.send(JSON.stringify({ type: "agent-state", instanceId, agent, state }));
-    }
-    socket.on("close", () => clients.delete(socket));
-  });
   server.on("upgrade", (request, socket, head) => {
     const url = new URL(request.url, "http://127.0.0.1");
     const { pathname } = url;
@@ -547,14 +641,27 @@ async function main() {
         rejectUpgrade(socket, 403, "Hub WebSocket Origin rejected");
         return;
       }
-      wsServer.handleUpgrade(request, socket, head, (webSocket) => {
-        wsServer.emit("connection", webSocket, request);
-      });
+      void (async () => {
+        const selectedTopic = await resolveTopic(url);
+        await canvasFor(selectedTopic);
+        wsServer.handleUpgrade(request, socket, head, (webSocket) => {
+          const topicClients = clients.get(selectedTopic) ?? new Set();
+          topicClients.add(webSocket);
+          clients.set(selectedTopic, topicClients);
+          for (const [instanceId, { agent, state }] of agentStates.get(selectedTopic) ?? []) {
+            webSocket.send(JSON.stringify({ type: "agent-state", instanceId, agent, state }));
+          }
+          webSocket.on("close", () => {
+            topicClients.delete(webSocket);
+            if (topicClients.size === 0) clients.delete(selectedTopic);
+          });
+        });
+      })().catch((error) => rejectUpgrade(socket, error.statusCode || 500, error.message));
       return;
     }
     const termMatch = pathname.match(/^\/term\/([^/]+)$/);
     const termId = termMatch?.[1];
-    if (!termId || !terms.has(termId)) {
+    if (!termId) {
       socket.destroy();
       return;
     }
@@ -562,13 +669,17 @@ async function main() {
       rejectUpgrade(socket, 403, "terminal WebSocket Origin rejected");
       return;
     }
-    if (!terms.authorize(termId, url.searchParams.get("cap"))) {
-      rejectUpgrade(socket, 401, "terminal capability rejected");
-      return;
-    }
-    termWsServer.handleUpgrade(request, socket, head, (webSocket) => {
-      terms.attach(termId, webSocket);
-    });
+    void (async () => {
+      const selectedTopic = await resolveTopic(url);
+      const { manager } = await termFor(selectedTopic);
+      if (!manager.has(termId) || !manager.authorize(termId, url.searchParams.get("cap"))) {
+        rejectUpgrade(socket, 401, "terminal capability rejected");
+        return;
+      }
+      termWsServer.handleUpgrade(request, socket, head, (webSocket) => {
+        manager.attach(termId, webSocket);
+      });
+    })().catch((error) => rejectUpgrade(socket, error.statusCode || 500, error.message));
   });
 
   let closing = false;
@@ -582,9 +693,15 @@ async function main() {
   const close = async () => {
     if (closing) return;
     closing = true;
-    canvasStore.close();
-    await terms.close();
-    for (const client of clients) client.close();
+    const stores = await Promise.allSettled(canvasStores.values());
+    for (const result of stores) if (result.status === "fulfilled") result.value.close();
+    const managers = await Promise.allSettled(termManagers.values());
+    await Promise.all(managers
+      .filter((result) => result.status === "fulfilled")
+      .map((result) => result.value.manager.close()));
+    for (const topicClients of clients.values()) {
+      for (const client of topicClients) client.close();
+    }
     wsServer.close();
     termWsServer.close();
     server.close();

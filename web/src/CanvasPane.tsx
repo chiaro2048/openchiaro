@@ -25,6 +25,7 @@ import {
 type CanvasPaneProps = {
   onApiReady: (api: ExcalidrawImperativeAPI) => void;
   onFocusChange: (labels: string[]) => void;
+  topic: string;
 };
 
 type PendingFocus = { ids: string[]; labels: string[] };
@@ -80,7 +81,7 @@ function labelsForSelection(elements: readonly ExcalidrawElement[], ids: string[
   return [...new Set(labels.map((label) => label.trim()).filter(Boolean))];
 }
 
-export function CanvasPane({ onApiReady, onFocusChange }: CanvasPaneProps) {
+export function CanvasPane({ onApiReady, onFocusChange, topic }: CanvasPaneProps) {
   const [scene, setScene] = useState<SceneData | null>(null);
   const [error, setError] = useState("");
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
@@ -103,7 +104,7 @@ export function CanvasPane({ onApiReady, onFocusChange }: CanvasPaneProps) {
 
   useEffect(() => {
     let cancelled = false;
-    loadScene()
+    loadScene(topic)
       .then(({ scene: loaded, version }) => {
         if (cancelled) return;
         elementsRef.current = loaded.elements;
@@ -118,14 +119,14 @@ export function CanvasPane({ onApiReady, onFocusChange }: CanvasPaneProps) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [topic]);
 
   const reloadFromDisk = useCallback(async (force = false) => {
     if (!force && Date.now() - lastOwnSaveAtRef.current < 800) {
       lastOwnSaveAtRef.current = 0;
       return;
     }
-    const { scene: next, version } = await loadScene();
+    const { scene: next, version } = await loadScene(topic);
     const changed = diffChangedElements(elementsRef.current, next.elements);
     elementsRef.current = next.elements;
     gestureBaselineRef.current = next.elements;
@@ -140,15 +141,16 @@ export function CanvasPane({ onApiReady, onFocusChange }: CanvasPaneProps) {
       requestAnimationFrame(() => api.scrollToContent(changed, { animate: true }));
     }
     setError("");
-  }, []);
+  }, [topic]);
 
   useEffect(() => {
     if (!scene) return;
     return connectCanvasUpdates(
+      topic,
       () => reloadFromDisk().catch((cause) => setError(`画布刷新失败：${cause.message}`)),
       setError,
     );
-  }, [reloadFromDisk, scene]);
+  }, [reloadFromDisk, scene, topic]);
 
   useEffect(
     () => () => {
@@ -164,7 +166,7 @@ export function CanvasPane({ onApiReady, onFocusChange }: CanvasPaneProps) {
     if (!pending) return;
     pendingFocusRef.current = undefined;
     lastFocusSentAtRef.current = Date.now();
-    postFocus(pending.ids, pending.labels).catch((cause) =>
+    postFocus(topic, pending.ids, pending.labels).catch((cause) =>
       setError(`Focus 写入失败：${cause.message}`),
     );
   };
@@ -198,13 +200,14 @@ export function CanvasPane({ onApiReady, onFocusChange }: CanvasPaneProps) {
         const operations = diffGestureOperations(gestureBaselineRef.current, next);
         gestureBaselineRef.current = next;
         if (!operations.length) return;
-        postGesture(operations, summarizeGestureOperations(operations)).catch((cause) =>
+        postGesture(topic, operations, summarizeGestureOperations(operations)).catch((cause) =>
           setError(`手势记录失败：${cause.message}`),
         );
       }, 500);
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
         postScene(
+          topic,
           serializeAsJSON(elements, appState, files, "local"),
           sceneVersionRef.current,
         ).then((version) => {
