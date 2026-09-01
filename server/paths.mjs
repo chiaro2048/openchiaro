@@ -40,5 +40,6 @@ export async function scaffoldTopic(project, topic) {
   if (!existsSync(paths.canvas)) {
     await writeFile(paths.canvas, EMPTY_SCENE, "utf8");
   }
+  await writeFile(paths.log, "", { encoding: "utf8", flag: "a" });
   return paths;
 }

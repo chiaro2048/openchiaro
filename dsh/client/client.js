@@ -15,7 +15,7 @@ window.__ModuleLoader__.load({
         const element = document.createElement(tag)
         Object.assign(element, attributes)
         element.addEventListener('load', resolve, { once: true })
-        element.addEventListener('error', () => reject(new Error(`Chiaro 资源加载失败：${attributes.src || attributes.href}`)), { once: true })
+        element.addEventListener('error', () => reject(new Error(`Chiaro 资源无法加载：${attributes.src || attributes.href}；请刷新页面后重试`)), { once: true })
         document.head.append(element)
       })
     }

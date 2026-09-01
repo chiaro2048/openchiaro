@@ -58,7 +58,9 @@ function ChiaroTerminal({ workspace, topic }) {
         ? "claude"
         : available[0]?.agent || "");
     }).catch((cause) => {
-      if (cause.name !== "AbortError") setStatus(`终端列表加载失败：${cause.message}`);
+      if (cause.name !== "AbortError") {
+        setStatus(`无法读取终端列表：${cause.message}；请检查 workspace 的 agent 配置后重试`);
+      }
     });
     return () => controller.abort();
   }, [query]);
@@ -120,7 +122,7 @@ function ChiaroTerminal({ workspace, topic }) {
       }));
       setStatus("");
     } catch (cause) {
-      setStatus(`终端启动失败：${cause.message}`);
+      setStatus(`终端启动失败：${cause.message}；请检查 agent 命令配置后重试`);
     } finally {
       setBusy(false);
     }
@@ -137,7 +139,7 @@ function ChiaroTerminal({ workspace, topic }) {
       setSession(null);
       setStatus("");
     } catch (cause) {
-      setStatus(`终端关闭失败：${cause.message}`);
+      setStatus(`终端关闭失败：${cause.message}；请稍后重试`);
     } finally {
       setBusy(false);
     }
@@ -168,9 +170,13 @@ export function ChiaroCanvas({ ctx, onClose }) {
     () => ctx.sessions.list.getSnapshot(),
   );
   const cwd = sessions.current ? sessions.byId[sessions.current]?.cwd : undefined;
+  const [workspaces, setWorkspaces] = React.useState([]);
   const [workspace, setWorkspace] = React.useState(null);
   const [topics, setTopics] = React.useState([]);
+  const [topicsLoaded, setTopicsLoaded] = React.useState(false);
   const [topic, setTopic] = React.useState("");
+  const [newTopic, setNewTopic] = React.useState("");
+  const [creatingTopic, setCreatingTopic] = React.useState(false);
   const [snapshot, setSnapshot] = React.useState(null);
   const [error, setError] = React.useState("");
   const apiRef = React.useRef(null);
@@ -185,36 +191,60 @@ export function ChiaroCanvas({ ctx, onClose }) {
 
   React.useEffect(() => {
     const controller = new AbortController();
+    setWorkspaces([]);
     setWorkspace(null);
     setTopics([]);
+    setTopicsLoaded(false);
     setTopic("");
     setSnapshot(null);
     if (!cwd) {
-      setError("当前 DSH 会话没有 workspace 路径");
+      setError("当前 DSH 会话没有 workspace 路径；请先打开一个 DSH workspace 后重试");
       return () => controller.abort();
     }
     void (async () => {
       try {
         const health = await requestJson("/api/chiaro/health", { signal: controller.signal, cache: "no-store" });
+        if (!Array.isArray(health.workspaces) || health.workspaces.length === 0) {
+          throw new Error("DSH 没有注册任何 workspace");
+        }
         const workspaceId = resolveWorkspaceId(health.workspaces, cwd);
         const current = health.workspaces.find((item) => item.id === workspaceId);
-        const list = await requestJson(`/api/chiaro/topics?workspaceId=${encodeURIComponent(workspaceId)}`, {
-          signal: controller.signal,
-          cache: "no-store",
-        });
-        if (!Array.isArray(list.topics) || list.topics.length === 0) {
-          throw new Error("当前 workspace 还没有 Chiaro topic");
-        }
+        setWorkspaces(health.workspaces);
         setWorkspace(current);
-        setTopics(list.topics);
-        setTopic(list.topics[0]);
         setError("");
       } catch (cause) {
-        if (cause.name !== "AbortError") setError(`画布入口加载失败：${cause.message}`);
+        if (cause.name !== "AbortError") {
+          setError(`无法读取 workspace 列表：${cause.message}；请确认当前会话已关联 DSH workspace 后重试`);
+        }
       }
     })();
     return () => controller.abort();
   }, [cwd]);
+
+  React.useEffect(() => {
+    if (!workspace) return undefined;
+    const controller = new AbortController();
+    setTopics([]);
+    setTopicsLoaded(false);
+    setTopic("");
+    setSnapshot(null);
+    setError("");
+    void requestJson(`/api/chiaro/topics?workspaceId=${encodeURIComponent(workspace.id)}`, {
+      signal: controller.signal,
+      cache: "no-store",
+    }).then((list) => {
+      if (!Array.isArray(list.topics)) throw new Error("服务返回的 topic 列表无效");
+      setTopics(list.topics);
+      setTopic(list.topics[0] || "");
+      setTopicsLoaded(true);
+      setError("");
+    }).catch((cause) => {
+      if (cause.name !== "AbortError") {
+        setError(`无法读取 ${workspace.title || workspace.path} 的 topic：${cause.message}；请检查 workspace 路径后重试`);
+      }
+    });
+    return () => controller.abort();
+  }, [workspace]);
 
   const loadScene = React.useCallback(async ({ external = false, signal } = {}) => {
     if (!workspace || !topic) return;
@@ -246,7 +276,9 @@ export function ChiaroCanvas({ ctx, onClose }) {
     clearTimeout(saveTimerRef.current);
     dirtyRef.current = false;
     void loadScene({ signal: controller.signal }).catch((cause) => {
-      if (cause.name !== "AbortError") setError(`画布加载失败：${cause.message}`);
+      if (cause.name !== "AbortError") {
+        setError(`无法打开画布：${cause.message}；请确认 topic 文件完整后重试`);
+      }
     });
     return () => controller.abort();
   }, [workspace, topic, loadScene]);
@@ -263,10 +295,12 @@ export function ChiaroCanvas({ ctx, onClose }) {
         try {
           const message = JSON.parse(event.data);
           if (message.type === "canvas-updated") {
-            void loadScene({ external: true }).catch((cause) => setError(`画布刷新失败：${cause.message}`));
+            void loadScene({ external: true }).catch((cause) => (
+              setError(`画布刷新失败：${cause.message}；请重新选择 topic 后重试`)
+            ));
           }
         } catch {
-          setError("Chiaro WebSocket 推送格式无效");
+          setError("Chiaro WebSocket 推送格式无效；请关闭并重新打开 Chiaro");
         }
       };
       socket.onclose = () => {
@@ -295,7 +329,9 @@ export function ChiaroCanvas({ ctx, onClose }) {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(pending),
-    }).catch((cause) => setError(`Focus 写入失败：${cause.message}`));
+    }).catch((cause) => (
+      setError(`Focus 写入失败：${cause.message}；请重新选择画布对象后重试`)
+    ));
   }, [workspace, topic]);
 
   const onChange = React.useCallback((elements, appState, files) => {
@@ -323,7 +359,7 @@ export function ChiaroCanvas({ ctx, onClose }) {
             void loadScene().then(() => setError("画布已被外部修改，本地冲突内容未覆盖磁盘"));
             return;
           }
-          setError(`画布保存失败：${cause.message}`);
+          setError(`画布保存失败：${cause.message}；请检查 workspace 写权限后重试`);
         });
       }, 800);
     }
@@ -341,10 +377,47 @@ export function ChiaroCanvas({ ctx, onClose }) {
     else focusTimerRef.current = window.setTimeout(sendFocus, wait);
   }, [workspace, topic, loadScene, sendFocus]);
 
+  const selectWorkspace = (event) => {
+    setTopics([]);
+    setTopicsLoaded(false);
+    setTopic("");
+    setSnapshot(null);
+    setWorkspace(workspaces.find((item) => item.id === event.target.value) || null);
+  };
+
+  const createTopic = async (event) => {
+    event.preventDefault();
+    if (!workspace) return;
+    const nextTopic = newTopic.trim();
+    setCreatingTopic(true);
+    try {
+      const created = await requestJson("/api/chiaro/topics", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ workspaceId: workspace.id, topic: nextTopic }),
+      });
+      setTopics(created.topics);
+      setTopic(created.topic);
+      setNewTopic("");
+      setError("");
+    } catch (cause) {
+      setError(`新建 topic 失败：${cause.message}；名称只能使用 ASCII 字母、数字、点、下划线和短横线，并请确认 workspace 可写`);
+    } finally {
+      setCreatingTopic(false);
+    }
+  };
+
   return h("div", { className: "chiaro-page", role: "region", "aria-label": "Chiaro 画布" },
     h("header", { className: "chiaro-toolbar" },
       h("strong", null, "Chiaro"),
-      h("span", { className: "chiaro-workspace" }, workspace?.title || cwd || "加载中…"),
+      h("select", {
+        className: "chiaro-workspace-select",
+        "aria-label": "Chiaro workspace",
+        value: workspace?.id || "",
+        disabled: workspaces.length === 0,
+        onChange: selectWorkspace,
+      }, workspaces.map((item) => h("option", { key: item.id, value: item.id },
+        `${item.title || item.id} — ${item.path}`))),
       h("select", {
         "aria-label": "Chiaro topic",
         value: topic,
@@ -359,7 +432,24 @@ export function ChiaroCanvas({ ctx, onClose }) {
           initialData: snapshot.scene,
           excalidrawAPI: (api) => { apiRef.current = api; },
           onChange,
-        }) : h("div", { className: "chiaro-loading" }, error || "正在加载画布…")),
+        }) : workspace && topicsLoaded && topics.length === 0
+          ? h("div", { className: "chiaro-empty" },
+            h("strong", null, "此 workspace 还没有 chiaro topic"),
+            h("form", { onSubmit: (event) => void createTopic(event) },
+              h("label", null, "新建 topic",
+                h("input", {
+                  "aria-label": "新建 topic",
+                  value: newTopic,
+                  required: true,
+                  pattern: "[A-Za-z0-9._-]+",
+                  title: "只能使用 ASCII 字母、数字、点、下划线和短横线",
+                  disabled: creatingTopic,
+                  onChange: (event) => setNewTopic(event.target.value),
+                })),
+              h("button", { type: "submit", disabled: creatingTopic },
+                creatingTopic ? "新建中…" : "新建并打开")),
+            error ? h("div", { className: "chiaro-empty-error", role: "alert" }, error) : null)
+          : h("div", { className: "chiaro-loading" }, error || "正在加载画布…")),
       workspace && topic ? h(ChiaroTerminal, { workspace, topic }) : null),
     error && snapshot ? h("div", { className: "chiaro-error", role: "alert" }, error) : null);
 }

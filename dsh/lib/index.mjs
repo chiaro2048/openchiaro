@@ -346,6 +346,18 @@ export function apply(ctx) {
     return { topic, topics };
   }
 
+  async function createTopic(workspace, topic) {
+    if (typeof topic !== "string" || !topic) throw new TypeError("需要非空 topic");
+    try {
+      assertTopic(topic);
+    } catch (error) {
+      throw new TypeError(error.message);
+    }
+    await scaffoldTopic(workspace.path, topic);
+    activeTopics.set(workspace.id, topic);
+    return listTopics(workspace.path);
+  }
+
   const keyOf = (workspace, topic) => `${workspace.id}\0${topic}`;
   const broadcast = (workspace, topic, payload = { type: "canvas-updated" }) => {
     const message = JSON.stringify({ ...payload, workspaceId: workspace.id, topic });
@@ -427,6 +439,34 @@ export function apply(ctx) {
     try {
       const url = new URL(request.url ?? "/", "http://dsh.internal");
       const method = request.method ?? "GET";
+
+      if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+        if (!hasSameOrigin(request)) throw new HttpError(403, "request Origin rejected");
+        if (request.headers["content-type"]?.split(";", 1)[0].trim().toLowerCase()
+            !== "application/json") {
+          throw new HttpError(415, "Content-Type must be application/json");
+        }
+      }
+
+      if (url.pathname === "/api/chiaro/topics" && method === "POST") {
+        const body = await readJsonBody(request);
+        if (!body || typeof body !== "object" || Array.isArray(body)
+            || Object.keys(body).some((key) => !["workspaceId", "topic"].includes(key))
+            || typeof body.workspaceId !== "string" || !body.workspaceId
+            || typeof body.topic !== "string" || !body.topic) {
+          throw new HttpError(400, "需要 {workspaceId, topic}");
+        }
+        const workspace = ctx.workspaceRegistry.get(body.workspaceId);
+        if (!workspace) throw new HttpError(404, `workspace 不存在：${body.workspaceId}`);
+        const topics = await createTopic(workspace, body.topic);
+        return sendJson(response, 201, {
+          ok: true,
+          workspaceId: workspace.id,
+          topic: body.topic,
+          topics,
+        });
+      }
+
       const workspace = resolveWorkspace(url);
       const workspaceId = workspace.id;
 
@@ -458,14 +498,6 @@ export function apply(ctx) {
           scene: JSON.parse(raw),
           version,
         });
-      }
-
-      if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
-        if (!hasSameOrigin(request)) throw new HttpError(403, "request Origin rejected");
-        if (request.headers["content-type"]?.split(";", 1)[0].trim().toLowerCase()
-            !== "application/json") {
-          throw new HttpError(415, "Content-Type must be application/json");
-        }
       }
 
       if (url.pathname === "/api/chiaro/agent-term" && method === "GET") {
@@ -758,9 +790,7 @@ export function apply(ctx) {
       const workspace = workspaceForAgent(exec.agent);
       if (!workspace) throw new Error("当前 DSH agent 不属于任何已注册 workspace");
       if (args.create) {
-        assertTopic(args.create);
-        await scaffoldTopic(workspace.path, args.create);
-        activeTopics.set(workspace.id, args.create);
+        await createTopic(workspace, args.create);
       }
       return JSON.stringify({
         workspaceId: workspace.id,
