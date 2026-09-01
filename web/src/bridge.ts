@@ -192,7 +192,7 @@ export async function uploadAgentAttachment(
   topic: string,
   instanceId: string,
   capability: string,
-  image: File,
+  image: Blob,
 ): Promise<string> {
   const url = new URL(
     topicPath(`/api/agent-term/${encodeURIComponent(instanceId)}/attachment`, topic),

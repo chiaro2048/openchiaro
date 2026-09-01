@@ -10,6 +10,18 @@ import "./styles.css";
 const SIDEBAR_STORAGE_KEY = "adw.sidebar.width";
 const DEFAULT_SIDEBAR_WIDTH = 380;
 const MIN_SIDEBAR_WIDTH = 280;
+const BUILD_VERSION = __CHIARO_BUILD_VERSION__;
+
+console.info(`[openchiaro] 前端构建版本 ${BUILD_VERSION}`);
+
+async function checkBuildVersion() {
+  if (!import.meta.env.PROD) return;
+  const response = await fetch("/build-version.json", { cache: "no-store" });
+  const body = await response.json() as { version?: unknown };
+  if (!response.ok || body.version !== BUILD_VERSION) {
+    throw new Error("前端版本不匹配，请刷新页面");
+  }
+}
 
 function clampSidebarWidth(width: number) {
   const max = Math.max(MIN_SIDEBAR_WIDTH, window.innerWidth * 0.6);
@@ -45,7 +57,7 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([loadHealth(), loadTopics()]).then(([health, catalog]) => {
+    Promise.all([loadHealth(), loadTopics(), checkBuildVersion()]).then(([health, catalog]) => {
       if (cancelled) return;
       if (requestedTopic !== null && catalog.topics.length > 0
           && !catalog.topics.includes(requestedTopic)) {

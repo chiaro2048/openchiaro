@@ -1,13 +1,34 @@
 import path from "node:path";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { defineConfig } from "vite";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+const packageVersion = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version;
+const buildHash = createHash("sha256");
+for (const file of ["canvas-logic.mjs", "chunk.css", "chunk.jsx", "client.js"]) {
+  buildHash.update(file).update(readFileSync(path.join(root, "client", file)));
+}
+const buildVersion = `${packageVersion}+${buildHash.digest("hex").slice(0, 12)}`;
 
 export default defineConfig({
   mode: "production",
-  define: { "process.env.NODE_ENV": JSON.stringify("production") },
+  define: {
+    "process.env.NODE_ENV": JSON.stringify("production"),
+    __CHIARO_BUILD_VERSION__: JSON.stringify(buildVersion),
+  },
+  plugins: [{
+    name: "chiaro-build-version",
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "build-version.json",
+        source: `${JSON.stringify({ version: buildVersion })}\n`,
+      });
+    },
+  }],
   build: {
     target: "es2022",
     outDir: path.join(root, "client"),

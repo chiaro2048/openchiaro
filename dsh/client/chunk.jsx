@@ -15,6 +15,9 @@ import "./chunk.css";
 
 const h = React.createElement;
 const MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024;
+const BUILD_VERSION = __CHIARO_BUILD_VERSION__;
+
+console.info(`[dsh-openchiaro] 前端构建版本 ${BUILD_VERSION}`);
 
 function blobBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -106,23 +109,13 @@ function ChiaroTerminal({ workspace, topic }) {
         socket.send(JSON.stringify({ type: "input", data }));
       }
     });
-    const onPaste = (event) => {
-      const clipboard = event.clipboardData;
-      if (!clipboard || clipboard.getData("text/plain") !== "") return;
-      const images = Array.from(clipboard.items).filter((item) => (
-        item.kind === "file" && item.type.startsWith("image/")
-      ));
+    const pasteImages = (images) => {
       if (images.length === 0) return;
-      event.preventDefault();
       if (images.length !== 1) {
         setStatus("一次只能粘贴一张图片");
         return;
       }
-      const image = images[0].getAsFile();
-      if (!image) {
-        setStatus("无法读取剪贴板图片");
-        return;
-      }
+      const [image] = images;
       if (image.size > MAX_ATTACHMENT_BYTES) {
         setStatus("图片原始数据超过 18 MiB");
         return;
@@ -149,7 +142,45 @@ function ChiaroTerminal({ workspace, topic }) {
         })
         .catch((cause) => setStatus(`图片粘贴失败：${cause.message}`));
     };
+    const onPaste = (event) => {
+      if (!event.clipboardData || event.clipboardData.getData("text/plain") !== "") return;
+      const images = Array.from(event.clipboardData.items).filter((item) => (
+        item.kind === "file" && item.type.startsWith("image/")
+      )).map((item) => item.getAsFile()).filter(Boolean);
+      if (images.length === 0) return;
+      event.preventDefault();
+      pasteImages(images);
+    };
+    const onMiddlePaste = async (event) => {
+      if (event.button !== 1) return;
+      event.preventDefault();
+      if (typeof navigator.clipboard?.read !== "function") {
+        setStatus("浏览器未授权剪贴板读取");
+        return;
+      }
+      try {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          if (!item.types.includes("text/plain")) continue;
+          const text = await (await item.getType("text/plain")).text();
+          if (text !== "") {
+            terminal.paste(text);
+            setStatus("");
+            return;
+          }
+        }
+        const images = [];
+        for (const item of items) {
+          const type = item.types.find((candidate) => candidate.startsWith("image/"));
+          if (type) images.push(await item.getType(type));
+        }
+        pasteImages(images);
+      } catch {
+        setStatus("浏览器未授权剪贴板读取");
+      }
+    };
     host.addEventListener("paste", onPaste, true);
+    host.addEventListener("auxclick", onMiddlePaste);
     const observer = new ResizeObserver(fit);
     observer.observe(host);
     socket.onopen = () => {
@@ -166,6 +197,7 @@ function ChiaroTerminal({ workspace, topic }) {
     return () => {
       observer.disconnect();
       host.removeEventListener("paste", onPaste, true);
+      host.removeEventListener("auxclick", onMiddlePaste);
       input.dispose();
       socket.close();
       terminal.dispose();
@@ -239,6 +271,7 @@ export function ChiaroCanvas({ ctx, onClose }) {
   const [creatingTopic, setCreatingTopic] = React.useState(false);
   const [snapshot, setSnapshot] = React.useState(null);
   const [error, setError] = React.useState("");
+  const [versionError, setVersionError] = React.useState("");
   const apiRef = React.useRef(null);
   const versionRef = React.useRef(0);
   const signatureRef = React.useRef("");
@@ -263,7 +296,16 @@ export function ChiaroCanvas({ ctx, onClose }) {
     }
     void (async () => {
       try {
-        const health = await requestJson("/api/chiaro/health", { signal: controller.signal, cache: "no-store" });
+        const [health, build] = await Promise.all([
+          requestJson("/api/chiaro/health", { signal: controller.signal, cache: "no-store" }),
+          requestJson("/chiaro/bundle/build-version.json", {
+            signal: controller.signal,
+            cache: "no-store",
+          }),
+        ]);
+        setVersionError(build.version === BUILD_VERSION
+          ? ""
+          : "前端版本不匹配，请刷新页面");
         if (!Array.isArray(health.workspaces) || health.workspaces.length === 0) {
           throw new Error("DSH 没有注册任何 workspace");
         }
@@ -511,5 +553,7 @@ export function ChiaroCanvas({ ctx, onClose }) {
             error ? h("div", { className: "chiaro-empty-error", role: "alert" }, error) : null)
           : h("div", { className: "chiaro-loading" }, error || "正在加载画布…")),
       workspace && topic ? h(ChiaroTerminal, { workspace, topic }) : null),
-    error && snapshot ? h("div", { className: "chiaro-error", role: "alert" }, error) : null);
+    versionError
+      ? h("div", { className: "chiaro-error", role: "alert" }, versionError)
+      : error && snapshot ? h("div", { className: "chiaro-error", role: "alert" }, error) : null);
 }

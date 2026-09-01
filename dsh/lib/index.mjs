@@ -39,6 +39,7 @@ const CLIENT_DIR = fileURLToPath(new URL("../client/", import.meta.url));
 const BUNDLES = new Map([
   ["/chiaro/bundle/excalidraw.js", ["excalidraw.js", "text/javascript; charset=utf-8"]],
   ["/chiaro/bundle/excalidraw.css", ["excalidraw.css", "text/css; charset=utf-8"]],
+  ["/chiaro/bundle/build-version.json", ["build-version.json", "application/json; charset=utf-8"]],
 ]);
 
 class HttpError extends Error {

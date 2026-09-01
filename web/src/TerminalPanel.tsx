@@ -254,23 +254,13 @@ function TerminalView({
     };
   }, [onEnded, scheduleFit, session.capability, session.instanceId, topic]);
 
-  const pasteAttachment = (event: ReactClipboardEvent<HTMLElement>) => {
-    const clipboard = event.clipboardData;
-    if (clipboard.getData("text/plain") !== "") return;
-    const images = Array.from(clipboard.items).filter((item) => (
-      item.kind === "file" && item.type.startsWith("image/")
-    ));
+  const pasteImages = (images: Blob[]) => {
     if (images.length === 0) return;
-    event.preventDefault();
     if (images.length !== 1) {
       onError("一次只能粘贴一张图片");
       return;
     }
-    const image = images[0].getAsFile();
-    if (!image) {
-      onError("无法读取剪贴板图片");
-      return;
-    }
+    const [image] = images;
     if (image.size > MAX_ATTACHMENT_BYTES) {
       onError("图片原始数据超过 18 MiB");
       return;
@@ -283,6 +273,45 @@ function TerminalView({
       .catch((cause: unknown) => {
         onError(`图片粘贴失败：${cause instanceof Error ? cause.message : String(cause)}`);
       });
+  };
+
+  const pasteAttachment = (event: ReactClipboardEvent<HTMLElement>) => {
+    if (event.clipboardData.getData("text/plain") !== "") return;
+    const images = Array.from(event.clipboardData.items).filter((item) => (
+      item.kind === "file" && item.type.startsWith("image/")
+    )).map((item) => item.getAsFile()).filter((image): image is File => image !== null);
+    if (images.length === 0) return;
+    event.preventDefault();
+    pasteImages(images);
+  };
+
+  const pasteMiddle = async (event: ReactMouseEvent<HTMLElement>) => {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    if (typeof navigator.clipboard?.read !== "function") {
+      onError("浏览器未授权剪贴板读取");
+      return;
+    }
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        if (!item.types.includes("text/plain")) continue;
+        const text = await (await item.getType("text/plain")).text();
+        if (text !== "") {
+          terminalRef.current?.paste(text);
+          onError("");
+          return;
+        }
+      }
+      const images: Blob[] = [];
+      for (const item of items) {
+        const type = item.types.find((candidate) => candidate.startsWith("image/"));
+        if (type) images.push(await item.getType(type));
+      }
+      pasteImages(images);
+    } catch {
+      onError("浏览器未授权剪贴板读取");
+    }
   };
 
   const restart = async () => {
@@ -302,6 +331,7 @@ function TerminalView({
       className={`terminal-view${active ? " active" : ""}`}
       data-agent={session.agent}
       data-instance-id={session.instanceId}
+      onAuxClick={(event) => void pasteMiddle(event)}
       onPasteCapture={pasteAttachment}
       ref={rootRef}
     >
