@@ -29,6 +29,16 @@ export function labelsForSelection(elements, ids) {
   return [...new Set(labels.map((label) => label.trim()).filter(Boolean))];
 }
 
+export function terminalSocketUrl(href, workspaceId, topic, session) {
+  const url = new URL("/api/chiaro/term", href);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("workspaceId", workspaceId);
+  url.searchParams.set("topic", topic);
+  url.searchParams.set("instanceId", session.instanceId);
+  url.searchParams.set("cap", session.capability);
+  return url.toString();
+}
+
 export const sceneSignature = (elements) => elements
   .map(({ id, version }) => `${id}:${version}`)
   .join("|");

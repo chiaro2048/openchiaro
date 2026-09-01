@@ -5,7 +5,17 @@
 .chiaro-workspace{color:#667085;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chiaro-toolbar select{min-width:160px;padding:5px 28px 5px 8px;border:1px solid #cfd5dd;border-radius:6px;background:#fff}
 .chiaro-toolbar button{margin-left:auto;padding:5px 12px;border:1px solid #cfd5dd;border-radius:6px;background:#fff;cursor:pointer}
+.chiaro-body{display:flex;min-height:0;flex:1}
 .chiaro-canvas{position:relative;min-height:0;flex:1}
 .chiaro-canvas>.excalidraw{height:100%}
+.chiaro-terminal{position:relative;display:flex;width:420px;min-width:300px;flex:none;flex-direction:column;border-left:1px solid #374151;background:#111827;color:#e5e7eb}
+.chiaro-terminal-toolbar{height:42px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid #374151}
+.chiaro-terminal-toolbar select,.chiaro-terminal-toolbar button{padding:4px 8px;border:1px solid #4b5563;border-radius:5px;background:#1f2937;color:#e5e7eb}
+.chiaro-terminal-toolbar select{min-width:120px;margin-left:auto}
+.chiaro-terminal-toolbar button{cursor:pointer}
+.chiaro-terminal-host{min-height:0;flex:1;padding:6px}
+.chiaro-terminal-host>.xterm{height:100%}
+.chiaro-terminal-empty{flex:1;display:grid;place-items:center;color:#9ca3af}
+.chiaro-terminal-status{position:absolute;right:10px;bottom:10px;max-width:calc(100% - 20px);padding:5px 8px;border-radius:5px;background:#7f1d1d;color:#fee2e2}
 .chiaro-loading{height:100%;display:grid;place-items:center;color:#667085}
 .chiaro-error{position:absolute;left:16px;bottom:16px;z-index:10;max-width:min(680px,calc(100vw - 32px));padding:8px 12px;border:1px solid #f0b7b7;border-radius:7px;background:#fff1f1;color:#9b1c1c;box-shadow:0 2px 8px #0002}

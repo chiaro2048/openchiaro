@@ -1,8 +1,16 @@
 import React from "react";
 import { Excalidraw, serializeAsJSON } from "@excalidraw/excalidraw";
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
 import "@excalidraw/excalidraw/index.css";
+import "@xterm/xterm/css/xterm.css";
 
-import { labelsForSelection, resolveWorkspaceId, sceneSignature } from "./canvas-logic.mjs";
+import {
+  labelsForSelection,
+  resolveWorkspaceId,
+  sceneSignature,
+  terminalSocketUrl,
+} from "./canvas-logic.mjs";
 import "./chunk.css";
 
 const h = React.createElement;
@@ -26,6 +34,133 @@ async function requestJson(url, options) {
 }
 
 const queryFor = (workspaceId, topic) => new URLSearchParams({ workspaceId, topic }).toString();
+
+function ChiaroTerminal({ workspace, topic }) {
+  const hostRef = React.useRef(null);
+  const [agents, setAgents] = React.useState([]);
+  const [agent, setAgent] = React.useState("claude");
+  const [session, setSession] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const [status, setStatus] = React.useState("");
+  const query = queryFor(workspace.id, topic);
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    setSession(null);
+    setStatus("");
+    void requestJson(`/api/chiaro/agent-term?${query}`, {
+      signal: controller.signal,
+      cache: "no-store",
+    }).then((catalog) => {
+      const available = Array.isArray(catalog.agents) ? catalog.agents : [];
+      setAgents(available);
+      setAgent(available.some((item) => item.agent === "claude")
+        ? "claude"
+        : available[0]?.agent || "");
+    }).catch((cause) => {
+      if (cause.name !== "AbortError") setStatus(`终端列表加载失败：${cause.message}`);
+    });
+    return () => controller.abort();
+  }, [query]);
+
+  React.useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !session) return undefined;
+    const terminal = new Terminal({
+      cursorBlink: true,
+      fontFamily: 'Consolas, "Cascadia Mono", monospace',
+      fontSize: 13,
+      theme: { background: "#111827", foreground: "#e5e7eb" },
+    });
+    const fitAddon = new FitAddon();
+    terminal.loadAddon(fitAddon);
+    terminal.open(host);
+    const socket = new WebSocket(terminalSocketUrl(location.href, workspace.id, topic, session));
+    socket.binaryType = "arraybuffer";
+    const fit = () => {
+      if (host.clientWidth < 2 || host.clientHeight < 2) return;
+      fitAddon.fit();
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
+      }
+    };
+    const input = terminal.onData((data) => {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "input", data }));
+      }
+    });
+    const observer = new ResizeObserver(fit);
+    observer.observe(host);
+    socket.onopen = () => {
+      setStatus("");
+      fit();
+    };
+    socket.onmessage = async (event) => {
+      if (typeof event.data === "string") terminal.write(event.data);
+      else if (event.data instanceof Blob) terminal.write(new Uint8Array(await event.data.arrayBuffer()));
+      else terminal.write(new Uint8Array(event.data));
+    };
+    socket.onerror = () => socket.close();
+    socket.onclose = () => setStatus("终端连接已结束");
+    return () => {
+      observer.disconnect();
+      input.dispose();
+      socket.close();
+      terminal.dispose();
+    };
+  }, [session, topic, workspace.id]);
+
+  const start = async () => {
+    setBusy(true);
+    try {
+      setSession(await requestJson(`/api/chiaro/agent-term?${query}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agent }),
+      }));
+      setStatus("");
+    } catch (cause) {
+      setStatus(`终端启动失败：${cause.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stop = async () => {
+    if (!session) return;
+    setBusy(true);
+    try {
+      await requestJson(`/api/chiaro/agent-term/${encodeURIComponent(session.instanceId)}?${query}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+      });
+      setSession(null);
+      setStatus("");
+    } catch (cause) {
+      setStatus(`终端关闭失败：${cause.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return h("aside", { className: "chiaro-terminal", "aria-label": "Chiaro agent 终端" },
+    h("div", { className: "chiaro-terminal-toolbar" },
+      h("strong", null, "PTY"),
+      h("select", {
+        "aria-label": "终端 agent",
+        value: agent,
+        disabled: busy || Boolean(session),
+        onChange: (event) => setAgent(event.target.value),
+      }, agents.map((item) => h("option", { key: item.agent, value: item.agent }, item.label))),
+      session
+        ? h("button", { type: "button", disabled: busy, onClick: () => void stop() }, "停止")
+        : h("button", { type: "button", disabled: busy || !agent, onClick: () => void start() },
+          busy ? "启动中…" : "启动")),
+    session
+      ? h("div", { className: "chiaro-terminal-host", ref: hostRef })
+      : h("div", { className: "chiaro-terminal-empty" }, "选择 Claude 或 Codex 后启动"),
+    status ? h("div", { className: "chiaro-terminal-status", role: "status" }, status) : null);
+}
 
 export function ChiaroCanvas({ ctx, onClose }) {
   const sessions = React.useSyncExternalStore(
@@ -217,12 +352,14 @@ export function ChiaroCanvas({ ctx, onClose }) {
         onChange: (event) => setTopic(event.target.value),
       }, topics.map((item) => h("option", { key: item, value: item }, item))),
       h("button", { type: "button", onClick: onClose }, "关闭")),
-    h("main", { className: "chiaro-canvas" },
-      snapshot ? h(Excalidraw, {
-        key: `${workspace.id}:${topic}`,
-        initialData: snapshot.scene,
-        excalidrawAPI: (api) => { apiRef.current = api; },
-        onChange,
-      }) : h("div", { className: "chiaro-loading" }, error || "正在加载画布…")),
+    h("div", { className: "chiaro-body" },
+      h("main", { className: "chiaro-canvas" },
+        snapshot ? h(Excalidraw, {
+          key: `${workspace.id}:${topic}`,
+          initialData: snapshot.scene,
+          excalidrawAPI: (api) => { apiRef.current = api; },
+          onChange,
+        }) : h("div", { className: "chiaro-loading" }, error || "正在加载画布…")),
+      workspace && topic ? h(ChiaroTerminal, { workspace, topic }) : null),
     error && snapshot ? h("div", { className: "chiaro-error", role: "alert" }, error) : null);
 }
