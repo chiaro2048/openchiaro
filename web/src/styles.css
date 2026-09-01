@@ -753,6 +753,10 @@ body {
   height: 100%;
 }
 
+.terminal-host .xterm-viewport {
+  background: #12151d;
+}
+
 .terminal-ended-overlay {
   position: absolute;
   inset: 0;
