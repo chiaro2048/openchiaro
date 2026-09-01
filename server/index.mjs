@@ -1,4 +1,4 @@
-import { readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +16,7 @@ import {
   releaseHubLock,
 } from "./hub-lock.mjs";
 import { assertTopic, listTopics, scaffoldTopic, topicPaths } from "./paths.mjs";
+import { diffScenes, summarizeScene } from "./scene-summary.mjs";
 import { createTermManager, defaultShell } from "./term.mjs";
 
 class HttpError extends Error {
@@ -303,6 +304,36 @@ async function main() {
   const termManagers = new Map();
   const agentStates = new Map();
   const clients = new Map();
+  const pendingWrites = new Map();
+
+  async function updateCanvasAwareness(paths, scene, change = "") {
+    const pendingPath = path.join(paths.contextDir, "pending-changes.json");
+    const previousWrite = pendingWrites.get(pendingPath) ?? Promise.resolve();
+    const operation = previousWrite.then(async () => {
+      let previous = {};
+      try {
+        previous = JSON.parse(await readFile(pendingPath, "utf8"));
+      } catch (error) {
+        if (error.code !== "ENOENT") {
+          console.warn(`[hub] 重建损坏的画布摘要缓存：${error.message}`);
+        }
+      }
+      const info = await stat(paths.canvas);
+      const changes = previous && typeof previous === "object" && Array.isArray(previous.changes)
+        ? previous.changes.filter((item) => typeof item === "string")
+        : [];
+      if (change) changes.push(change);
+      const temporaryPath = `${pendingPath}.${process.pid}.${Date.now()}.tmp`;
+      await writeFile(temporaryPath, JSON.stringify({
+        signature: `${info.mtimeMs}:${info.size}`,
+        summary: summarizeScene(scene),
+        changes: changes.slice(-20),
+      }), "utf8");
+      await rename(temporaryPath, pendingPath);
+    });
+    pendingWrites.set(pendingPath, operation.catch(() => {}));
+    return operation;
+  }
 
   const broadcast = (selectedTopic, payload) => {
     const message = JSON.stringify(payload);
@@ -351,9 +382,16 @@ async function main() {
   async function canvasFor(selectedTopic) {
     let pending = canvasStores.get(selectedTopic);
     if (!pending) {
-      pending = createCanvasStore(topicPaths(project, selectedTopic).canvas, () => {
-        broadcast(selectedTopic, { type: "canvas-updated" });
-      });
+      pending = (async () => {
+        const paths = await scaffoldTopic(project, selectedTopic);
+        const initialScene = JSON.parse(await readFile(paths.canvas, "utf8"));
+        await updateCanvasAwareness(paths, initialScene);
+        return createCanvasStore(paths.canvas, async (_version, previousRaw, raw) => {
+          const scene = JSON.parse(raw);
+          await updateCanvasAwareness(paths, scene, diffScenes(JSON.parse(previousRaw), scene));
+          broadcast(selectedTopic, { type: "canvas-updated" });
+        });
+      })();
       canvasStores.set(selectedTopic, pending);
       pending.catch(() => canvasStores.delete(selectedTopic));
     }
@@ -592,8 +630,14 @@ async function main() {
         if (!body || typeof body !== "object" || !body.scene) {
           throw new HttpError(400, "需要 {baseVersion, scene}");
         }
-        const version = await (await canvasFor(selectedTopic))
-          .write(JSON.stringify(body.scene), body.baseVersion);
+        const store = await canvasFor(selectedTopic);
+        const previousScene = JSON.parse((await store.read()).raw);
+        const version = await store.write(JSON.stringify(body.scene), body.baseVersion);
+        await updateCanvasAwareness(
+          selectedPaths,
+          body.scene,
+          diffScenes(previousScene, body.scene),
+        );
         sendJson(response, 200, { ok: true, version });
         return;
       }

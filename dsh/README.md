@@ -31,8 +31,9 @@ dsh plugin --profile web add link:<openchiaro 源码目录>\dsh
 
 ## 能力
 
-- 点选画布元素后，当前 Focus 会注入下一轮 DeepSeek 对话。
-- `chiaro_scene_read` 读取画布与 Focus。
+- DeepSeek 每轮都能看到当前 topic、画布概况和能力提示；Focus 与上一轮尚未消费的画布变更会自动搭车注入一次。
+- `chiaro_scene_read` 在需要具体元素与关系时读取画布与 Focus。
+- `chiaro_log_read` 回顾最近的对话、画布操作和已落账结论。
 - `chiaro_conclusion_write` 写入紫色结论卡。
 - `chiaro_topic_list` 列出或创建 topic。
 - 画布页内置受控 PTY 面板，可启动服务端配置的 Claude/Codex；浏览器不能提交任意命令。

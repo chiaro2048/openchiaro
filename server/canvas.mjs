@@ -30,6 +30,7 @@ export async function createCanvasStore(
   } = {},
 ) {
   let lastSignature = await signatureOf(canvasPath);
+  let lastRaw = await readFile(canvasPath, "utf8");
   let lastSelfWriteAt = 0;
   let lastSelfSignature = "";
   let sceneVersion = 0;
@@ -47,8 +48,11 @@ export async function createCanvasStore(
         signature === lastSelfSignature &&
         Date.now() - lastSelfWriteAt < selfWriteIgnoreMs
       ) return;
+      const raw = await readFile(canvasPath, "utf8");
+      const previousRaw = lastRaw;
+      lastRaw = raw;
       sceneVersion += 1;
-      onExternalChange(sceneVersion);
+      await onExternalChange(sceneVersion, previousRaw, raw);
     })();
     try {
       await checking;
@@ -114,6 +118,7 @@ export async function createCanvasStore(
         await rename(temporaryPath, canvasPath);
         lastSignature = await signatureOf(canvasPath);
         lastSelfSignature = lastSignature;
+        lastRaw = rawScene;
         sceneVersion += 1;
         return sceneVersion;
       });
