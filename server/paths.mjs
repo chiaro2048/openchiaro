@@ -1,5 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export const TOPIC_RE = /^[A-Za-z0-9._-]+$/;
@@ -30,6 +30,30 @@ export function topicPaths(project, topic) {
   };
 }
 
+export async function listTopics(project) {
+  try {
+    return (await readdir(path.join(project, "chiaro"), { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory() && TOPIC_RE.test(entry.name))
+      .map((entry) => entry.name)
+      .sort();
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+export function listTopicsSync(project) {
+  try {
+    return readdirSync(path.join(project, "chiaro"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && TOPIC_RE.test(entry.name))
+      .map((entry) => entry.name)
+      .sort();
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
 export const EMPTY_SCENE =
   '{"type":"excalidraw","version":2,"source":"chiaro","elements":[],"appState":{"viewBackgroundColor":"#ffffff"},"files":{}}\n';
 
@@ -40,5 +64,6 @@ export async function scaffoldTopic(project, topic) {
   if (!existsSync(paths.canvas)) {
     await writeFile(paths.canvas, EMPTY_SCENE, "utf8");
   }
+  await writeFile(paths.log, "", { encoding: "utf8", flag: "a" });
   return paths;
 }

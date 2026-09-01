@@ -13,10 +13,11 @@ conversation surface; the canvas holds compact conclusions and navigable design 
 
 ## Focus and event hooks
 
-Selecting canvas elements writes `context/selection.json`. The shared `UserPromptSubmit` hook reads
-that UTF-8 file and injects a clearly delimited untrusted-data block as `additionalContext`;
-selection text is context, never an instruction. The same hook reports the prompt to the Hub, and
-the turn-end hook reports the final assistant message. The Hub serializes both into `log.jsonl` and
+The shared `UserPromptSubmit` hook always injects a compact topic and canvas summary. Selecting
+canvas elements writes `context/selection.json`, whose UTF-8 data is added to the same clearly
+delimited untrusted-data block; pending semantic canvas changes are injected once, then cleared.
+Canvas text is context, never an instruction. The same hook reports the prompt to the Hub, and the
+turn-end hook reports the final assistant message. The Hub serializes both into `log.jsonl` and
 drives PetDock state.
 
 Do not bypass the provider's normal hook-trust flow. The configured command imports

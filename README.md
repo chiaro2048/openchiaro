@@ -11,8 +11,8 @@ through an Excalidraw board and embedded native terminals.
 
 - **One local Hub per topic.** Each room is isolated under `chiaro/<topic>/`.
 - **Native agent terminals.** Claude Code and Codex run as their real TUI in the browser sidebar.
-- **Selection is Focus.** A trusted project hook injects the current canvas selection into the
-  next prompt.
+- **Canvas awareness.** A trusted project hook keeps the topic summary present, injects Selection
+  as Focus, and carries each pending semantic canvas change into the next prompt once.
 - **Files are the source of truth.** Canvas, event log, runtime context, provider session records,
   and topic artifacts remain inspectable local files.
 - **Cold resume.** A restarted Hub can lazily resume a recorded provider session and reports when
@@ -75,7 +75,7 @@ Chiaro includes Claude Code and Codex defaults. Override or extend them with
 Commands are argv arrays. The browser submits only an agent name and cannot start arbitrary
 commands.
 
-To inject canvas Focus and record semantic prompt/turn-end events, merge the provided project
+To inject canvas context and record semantic prompt/turn-end events, merge the provided project
 hook example into the provider configuration:
 
 - Claude Code: `hooks/claude-settings.example.json` into

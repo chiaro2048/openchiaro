@@ -2,6 +2,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  ClipboardEvent as ReactClipboardEvent,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
@@ -13,6 +14,7 @@ import {
   loadAgentTerms,
   postAgentTerm,
   resumeAgentTerm,
+  uploadAgentAttachment,
 } from "./bridge";
 import type {
   AgentState,
@@ -30,24 +32,13 @@ type LiveAgentTerm = AgentTermSession & {
 
 const MAX_RECONNECT_ATTEMPTS = 3;
 const MAX_RECONNECT_WINDOW_MS = 6000;
-const FONT_SIZE_STORAGE_KEY = "adw.terminal.fontSize";
-const DEFAULT_FONT_SIZE = 13;
-const MIN_FONT_SIZE = 8;
-const MAX_FONT_SIZE = 32;
+const MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024;
 
-function storedFontSize() {
-  const stored = window.localStorage.getItem(FONT_SIZE_STORAGE_KEY);
-  if (stored === null) return DEFAULT_FONT_SIZE;
-  const value = Number(stored);
-  return Number.isFinite(value)
-    ? Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(value)))
-    : DEFAULT_FONT_SIZE;
-}
-
-function terminalSocketUrl(session: AgentTermSession) {
+function terminalSocketUrl(session: AgentTermSession, topic: string) {
   const url = new URL(`/term/${encodeURIComponent(session.instanceId)}`, window.location.href);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.searchParams.set("cap", session.capability);
+  url.searchParams.set("topic", topic);
   return url.toString();
 }
 
@@ -55,16 +46,20 @@ function TerminalView({
   active,
   fontSize,
   onEnded,
+  onError,
   onFontZoom,
   onRestart,
   session,
+  topic,
 }: {
   active: boolean;
   fontSize: number;
   onEnded: (instanceId: string) => void;
+  onError: (message: string) => void;
   onFontZoom: (delta: number) => void;
   onRestart: (instanceId: string, agent: string) => Promise<void>;
   session: LiveAgentTerm;
+  topic: string;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -193,7 +188,7 @@ function TerminalView({
     };
     const connect = () => {
       if (stopped) return;
-      const socket = new WebSocket(terminalSocketUrl(session));
+      const socket = new WebSocket(terminalSocketUrl(session, topic));
       socket.binaryType = "arraybuffer";
       socketRef.current = socket;
       socket.onopen = () => {
@@ -222,7 +217,7 @@ function TerminalView({
       socket.onclose = async () => {
         if (stopped) return;
         try {
-          const summary = (await loadAgentTerms(AbortSignal.timeout(750)))
+          const summary = (await loadAgentTerms(topic, AbortSignal.timeout(750)))
             .instances.find(({ instanceId }) => instanceId === session.instanceId);
           if (summary?.alive) reconnect();
           else {
@@ -244,7 +239,67 @@ function TerminalView({
       socketRef.current = null;
       socket?.close();
     };
-  }, [onEnded, scheduleFit, session.capability, session.instanceId]);
+  }, [onEnded, scheduleFit, session.capability, session.instanceId, topic]);
+
+  const pasteImages = (images: Blob[]) => {
+    if (images.length === 0) return;
+    if (images.length !== 1) {
+      onError("一次只能粘贴一张图片");
+      return;
+    }
+    const [image] = images;
+    if (image.size > MAX_ATTACHMENT_BYTES) {
+      onError("图片原始数据超过 18 MiB");
+      return;
+    }
+    void uploadAgentAttachment(topic, session.instanceId, session.capability, image)
+      .then((attachmentPath) => {
+        terminalRef.current?.paste(attachmentPath);
+        onError("");
+      })
+      .catch((cause: unknown) => {
+        onError(`图片粘贴失败：${cause instanceof Error ? cause.message : String(cause)}`);
+      });
+  };
+
+  const pasteAttachment = (event: ReactClipboardEvent<HTMLElement>) => {
+    if (event.clipboardData.getData("text/plain") !== "") return;
+    const images = Array.from(event.clipboardData.items).filter((item) => (
+      item.kind === "file" && item.type.startsWith("image/")
+    )).map((item) => item.getAsFile()).filter((image): image is File => image !== null);
+    if (images.length === 0) return;
+    event.preventDefault();
+    pasteImages(images);
+  };
+
+  const pasteMiddle = async (event: ReactMouseEvent<HTMLElement>) => {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    if (typeof navigator.clipboard?.read !== "function") {
+      onError("浏览器未授权剪贴板读取");
+      return;
+    }
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        if (!item.types.includes("text/plain")) continue;
+        const text = await (await item.getType("text/plain")).text();
+        if (text !== "") {
+          terminalRef.current?.paste(text);
+          onError("");
+          return;
+        }
+      }
+      const images: Blob[] = [];
+      for (const item of items) {
+        const type = item.types.find((candidate) => candidate.startsWith("image/"));
+        if (type) images.push(await item.getType(type));
+      }
+      pasteImages(images);
+    } catch {
+      onError("浏览器未授权剪贴板读取");
+    }
+  };
 
   const restart = async () => {
     setRestarting(true);
@@ -263,6 +318,8 @@ function TerminalView({
       className={`terminal-view${active ? " active" : ""}`}
       data-agent={session.agent}
       data-instance-id={session.instanceId}
+      onAuxClick={(event) => void pasteMiddle(event)}
+      onPasteCapture={pasteAttachment}
       ref={rootRef}
     >
       <div aria-label={`${session.label} 终端`} className="terminal-host" ref={hostRef} />
@@ -293,6 +350,8 @@ function TerminalView({
 export function TerminalPanel({
   collapsed,
   focusLabels,
+  fontSize,
+  onFontZoom,
   onResetWidth,
   onResizeBy,
   onResizeStart,
@@ -302,6 +361,8 @@ export function TerminalPanel({
 }: {
   collapsed: boolean;
   focusLabels: string[];
+  fontSize: number;
+  onFontZoom: (delta: number) => void;
   onResetWidth: () => void;
   onResizeBy: (delta: number) => void;
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -313,7 +374,6 @@ export function TerminalPanel({
   const [summaries, setSummaries] = useState<AgentTermSummary[]>([]);
   const [sessions, setSessions] = useState<Record<string, LiveAgentTerm>>({});
   const [currentInstanceId, setCurrentInstanceId] = useState("");
-  const [fontSize, setFontSize] = useState(storedFontSize);
   const [menuOpen, setMenuOpen] = useState(false);
   const [petMenu, setPetMenu] = useState<{ instanceId: string; x: number; y: number } | null>(null);
   const [pendingCloseInstanceId, setPendingCloseInstanceId] = useState("");
@@ -323,16 +383,8 @@ export function TerminalPanel({
   const [injectionNotice, setInjectionNotice] = useState("");
   const [error, setError] = useState("");
 
-  const zoomFont = useCallback((delta: number) => {
-    setFontSize((current) => Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, current + delta)));
-  }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, String(fontSize));
-  }, [fontSize]);
-
   const refreshSummaries = useCallback(async () => {
-    const catalog = await loadAgentTerms();
+    const catalog = await loadAgentTerms(topic);
     setAgentTypes(catalog.agents);
     setSummaries(catalog.instances);
     setAgentStates((current) => {
@@ -345,12 +397,12 @@ export function TerminalPanel({
       return states;
     });
     return catalog;
-  }, []);
+  }, [topic]);
 
   const launchAgent = useCallback(async (agent: string) => {
     setBusyAgent(agent);
     try {
-      const session = await postAgentTerm(agent);
+      const session = await postAgentTerm(topic, agent);
       const { instances } = await refreshSummaries();
       const summary = instances.find((item) => item.instanceId === session.instanceId);
       setSessions((current) => ({
@@ -372,12 +424,12 @@ export function TerminalPanel({
     } finally {
       setBusyAgent("");
     }
-  }, [refreshSummaries]);
+  }, [refreshSummaries, topic]);
 
   const resumeInstance = useCallback(async (instanceId: string) => {
     setBusyAgent(instanceId);
     try {
-      const session = await resumeAgentTerm(instanceId);
+      const session = await resumeAgentTerm(topic, instanceId);
       const { instances } = await refreshSummaries();
       const summary = instances.find((item) => item.instanceId === instanceId);
       if (!summary) throw new Error(`Hub 未返回实例：${instanceId}`);
@@ -394,11 +446,12 @@ export function TerminalPanel({
     } finally {
       setBusyAgent("");
     }
-  }, [refreshSummaries]);
+  }, [refreshSummaries, topic]);
 
   useEffect(() => {
     let noticeTimer: number | undefined;
     const disconnect = connectAgentStateEvents(
+      topic,
       (event) => {
         setAgentStates((current) => ({ ...current, [event.instanceId]: event.state }));
       },
@@ -413,7 +466,7 @@ export function TerminalPanel({
       disconnect();
       if (noticeTimer !== undefined) window.clearTimeout(noticeTimer);
     };
-  }, []);
+  }, [topic]);
 
   useEffect(() => {
     let cancelled = false;
@@ -421,7 +474,7 @@ export function TerminalPanel({
       const alive = instances.filter((item) => item.alive);
       const restored = await Promise.all(alive.map(async (item) => ({
         item,
-        session: await resumeAgentTerm(item.instanceId),
+        session: await resumeAgentTerm(topic, item.instanceId),
       })));
       if (cancelled) return;
       const next: Record<string, LiveAgentTerm> = {};
@@ -434,7 +487,7 @@ export function TerminalPanel({
       if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
     });
     return () => { cancelled = true; };
-  }, [refreshSummaries]);
+  }, [refreshSummaries, topic]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -491,7 +544,7 @@ export function TerminalPanel({
     if (!instanceId) return;
     setClosingInstanceId(instanceId);
     try {
-      await deleteAgentTerm(instanceId);
+      await deleteAgentTerm(topic, instanceId);
       setSessions((current) => Object.fromEntries(
         Object.entries(current).filter(([key]) => key !== instanceId),
       ));
@@ -669,9 +722,11 @@ export function TerminalPanel({
               fontSize={fontSize}
               key={session.instanceId}
               onEnded={markEnded}
-              onFontZoom={zoomFont}
+              onError={setError}
+              onFontZoom={onFontZoom}
               onRestart={restartInstance}
               session={session}
+              topic={topic}
             />
           ))}
         </div>
