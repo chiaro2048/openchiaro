@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -7,11 +7,23 @@ import path from "node:path";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { WebSocketServer } from "ws";
 
-import { createCanvasStore, VersionConflictError } from "../../server/canvas.mjs";
-import { createEventLog } from "../../server/event-log.mjs";
-import { writeFocus } from "../../server/focus.mjs";
-import { assertTopic, scaffoldTopic, topicPaths } from "../../server/paths.mjs";
-import { createTermManager } from "../../server/term.mjs";
+const sourcePackage = new URL("../../package.json", import.meta.url);
+const corePrefix = existsSync(sourcePackage)
+  && JSON.parse(readFileSync(sourcePackage, "utf8")).name === "openchiaro"
+  ? "../../server"
+  : "openchiaro/server";
+const [canvas, eventLog, focus, paths, term] = await Promise.all([
+  import(`${corePrefix}/canvas.mjs`),
+  import(`${corePrefix}/event-log.mjs`),
+  import(`${corePrefix}/focus.mjs`),
+  import(`${corePrefix}/paths.mjs`),
+  import(`${corePrefix}/term.mjs`),
+]);
+const { createCanvasStore, VersionConflictError } = canvas;
+const { createEventLog } = eventLog;
+const { writeFocus } = focus;
+const { assertTopic, scaffoldTopic, topicPaths } = paths;
+const { createTermManager } = term;
 
 export const name = "dsh-openchiaro";
 export const inject = ["webServer", "workspaceRegistry", "systemPrompt", "tools"];
