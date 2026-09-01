@@ -7,6 +7,7 @@ import { createTopic, loadHealth, loadTopics } from "./bridge";
 import type { HubHealth } from "./bridge";
 import { SettingsPanel } from "./SettingsPanel";
 import { readSettings, SETTINGS, writeSetting } from "./settings.mjs";
+import type { SettingValue, SettingsValues } from "./settings.mjs";
 import { TerminalPanel } from "./TerminalPanel";
 import "./styles.css";
 
@@ -52,6 +53,9 @@ function storedSettings() {
   }
 }
 
+const initialSettings = storedSettings();
+document.documentElement.dataset.theme = initialSettings.theme;
+
 function App() {
   const [requestedTopic] = useState(() => new URLSearchParams(window.location.search).get("topic"));
   const [hubIdentity, setHubIdentity] = useState<{
@@ -67,7 +71,7 @@ function App() {
   const [focusLabels, setFocusLabels] = useState<string[]>([]);
   const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [settings, setSettings] = useState<Record<string, number>>(storedSettings);
+  const [settings, setSettings] = useState<SettingsValues>(initialSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
@@ -100,6 +104,10 @@ function App() {
   }, [hubIdentity, topic]);
 
   useEffect(() => {
+    document.documentElement.dataset.theme = settings.theme;
+  }, [settings.theme]);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(Math.round(sidebarWidth)));
     } catch (error) {
@@ -111,7 +119,7 @@ function App() {
     setSidebarWidth((current) => clampSidebarWidth(current + delta));
   };
 
-  const changeSetting = (id: string, value: number) => {
+  const changeSetting = (id: string, value: SettingValue) => {
     const definition = SETTINGS.find((setting) => setting.id === id);
     if (!definition) return;
     setSettings((current) => {
@@ -129,7 +137,9 @@ function App() {
     const definition = SETTINGS.find((setting) => setting.id === id);
     if (!definition) return;
     setSettings((current) => {
-      let next = current[id] + delta;
+      const currentValue = current[id];
+      if (typeof currentValue !== "number") return current;
+      let next: SettingValue = currentValue + delta;
       try {
         next = writeSetting(window.localStorage, definition, next);
       } catch (error) {

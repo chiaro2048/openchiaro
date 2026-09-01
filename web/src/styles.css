@@ -3,6 +3,7 @@
 }
 
 :root {
+  color-scheme: dark;
   --chiaro-shell: #0e1016;
   --chiaro-panel: #1b1f29;
   --chiaro-terminal: #12151d;
@@ -19,6 +20,22 @@
   --chiaro-radius-small: 7px;
   --chiaro-space: 8px;
   --chiaro-shadow: 0 12px 36px rgb(0 0 0 / 42%);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --chiaro-shell: #f5f6f8;
+  --chiaro-panel: #ffffff;
+  --chiaro-terminal: #eef1f5;
+  --chiaro-chrome: #e9edf2;
+  --chiaro-border: #d3d9e2;
+  --chiaro-border-strong: #9aa6b5;
+  --chiaro-text: #202735;
+  --chiaro-muted: #596477;
+  --chiaro-purple: #5b4fbd;
+  --chiaro-amber: #8a5b00;
+  --chiaro-green: #24753c;
+  --chiaro-danger: #b43d38;
 }
 
 html,
@@ -197,7 +214,8 @@ body {
   padding: 12px 0;
 }
 
-.settings-row input {
+.settings-row input,
+.settings-row select {
   width: 84px;
   border: 1px solid var(--chiaro-border-strong);
   border-radius: var(--chiaro-radius-small);
