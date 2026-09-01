@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { WebSocketServer } from "ws";
 
+import { saveAttachment } from "./attachments.mjs";
 import { createCanvasStore, VersionConflictError } from "./canvas.mjs";
 import { createEventLog } from "./event-log.mjs";
 import { writeFocus } from "./focus.mjs";
@@ -481,6 +482,21 @@ async function main() {
       if (request.method === "GET" && pathname === "/api/agent-term") {
         const { manager } = await termFor(selectedTopic);
         sendJson(response, 200, manager.listAgentTerms());
+        return;
+      }
+
+      const agentTermAttachment = pathname.match(/^\/api\/agent-term\/([^/]+)\/attachment$/);
+      if (request.method === "POST" && agentTermAttachment) {
+        const instanceId = decodeURIComponent(agentTermAttachment[1]);
+        const { manager } = await termFor(selectedTopic);
+        if (!manager.authorize(instanceId, url.searchParams.get("cap"))) {
+          throw new HttpError(401, "terminal capability rejected");
+        }
+        const attachment = await saveAttachment(
+          selectedPaths.contextDir,
+          parseJson(await readBody(request)),
+        );
+        sendJson(response, 201, { path: attachment.path });
         return;
       }
 

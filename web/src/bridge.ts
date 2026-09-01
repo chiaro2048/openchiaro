@@ -170,6 +170,46 @@ export async function deleteAgentTerm(topic: string, instanceId: string): Promis
   if (!response.ok) throw await responseError(response);
 }
 
+function blobBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error("读取剪贴板图片失败"));
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("剪贴板图片编码失败"));
+        return;
+      }
+      const comma = result.indexOf(",");
+      if (comma < 0) reject(new Error("剪贴板图片编码失败"));
+      else resolve(result.slice(comma + 1));
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+export async function uploadAgentAttachment(
+  topic: string,
+  instanceId: string,
+  capability: string,
+  image: File,
+): Promise<string> {
+  const url = new URL(
+    topicPath(`/api/agent-term/${encodeURIComponent(instanceId)}/attachment`, topic),
+    window.location.href,
+  );
+  url.searchParams.set("cap", capability);
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ mimeType: image.type, base64: await blobBase64(image) }),
+  });
+  if (!response.ok) throw await responseError(response);
+  const result = await response.json() as { path?: unknown };
+  if (typeof result.path !== "string" || !result.path) throw new Error("Hub 未返回附件路径");
+  return result.path;
+}
+
 export async function loadHealth(): Promise<HubHealth> {
   const response = await fetch("/api/health");
   if (!response.ok) throw await responseError(response);

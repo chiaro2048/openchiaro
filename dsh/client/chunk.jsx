@@ -14,6 +14,21 @@ import {
 import "./chunk.css";
 
 const h = React.createElement;
+const MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024;
+
+function blobBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error("读取剪贴板图片失败"));
+    reader.onload = () => {
+      const result = reader.result;
+      const comma = typeof result === "string" ? result.indexOf(",") : -1;
+      if (comma < 0) reject(new Error("剪贴板图片编码失败"));
+      else resolve(result.slice(comma + 1));
+    };
+    reader.readAsDataURL(blob);
+  });
+}
 
 async function requestJson(url, options) {
   const response = await fetch(url, options);
@@ -91,6 +106,50 @@ function ChiaroTerminal({ workspace, topic }) {
         socket.send(JSON.stringify({ type: "input", data }));
       }
     });
+    const onPaste = (event) => {
+      const clipboard = event.clipboardData;
+      if (!clipboard || clipboard.getData("text/plain") !== "") return;
+      const images = Array.from(clipboard.items).filter((item) => (
+        item.kind === "file" && item.type.startsWith("image/")
+      ));
+      if (images.length === 0) return;
+      event.preventDefault();
+      if (images.length !== 1) {
+        setStatus("一次只能粘贴一张图片");
+        return;
+      }
+      const image = images[0].getAsFile();
+      if (!image) {
+        setStatus("无法读取剪贴板图片");
+        return;
+      }
+      if (image.size > MAX_ATTACHMENT_BYTES) {
+        setStatus("图片原始数据超过 18 MiB");
+        return;
+      }
+      const url = new URL(
+        `/api/chiaro/agent-term/${encodeURIComponent(session.instanceId)}/attachment`,
+        location.href,
+      );
+      url.searchParams.set("workspaceId", workspace.id);
+      url.searchParams.set("topic", topic);
+      url.searchParams.set("cap", session.capability);
+      void blobBase64(image)
+        .then((base64) => requestJson(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ mimeType: image.type, base64 }),
+        }))
+        .then((attachment) => {
+          if (typeof attachment.path !== "string" || !attachment.path) {
+            throw new Error("host 未返回附件路径");
+          }
+          terminal.paste(attachment.path);
+          setStatus("");
+        })
+        .catch((cause) => setStatus(`图片粘贴失败：${cause.message}`));
+    };
+    host.addEventListener("paste", onPaste, true);
     const observer = new ResizeObserver(fit);
     observer.observe(host);
     socket.onopen = () => {
@@ -106,6 +165,7 @@ function ChiaroTerminal({ workspace, topic }) {
     socket.onclose = () => setStatus("终端连接已结束");
     return () => {
       observer.disconnect();
+      host.removeEventListener("paste", onPaste, true);
       input.dispose();
       socket.close();
       terminal.dispose();

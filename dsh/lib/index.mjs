@@ -12,13 +12,15 @@ const corePrefix = existsSync(sourcePackage)
   && JSON.parse(readFileSync(sourcePackage, "utf8")).name === "openchiaro"
   ? "../../server"
   : "openchiaro/server";
-const [canvas, eventLog, focus, paths, term] = await Promise.all([
+const [attachments, canvas, eventLog, focus, paths, term] = await Promise.all([
+  import(`${corePrefix}/attachments.mjs`),
   import(`${corePrefix}/canvas.mjs`),
   import(`${corePrefix}/event-log.mjs`),
   import(`${corePrefix}/focus.mjs`),
   import(`${corePrefix}/paths.mjs`),
   import(`${corePrefix}/term.mjs`),
 ]);
+const { saveAttachment } = attachments;
 const { createCanvasStore, VersionConflictError } = canvas;
 const { createEventLog } = eventLog;
 const { writeFocus } = focus;
@@ -473,6 +475,19 @@ export function apply(ctx) {
         }
         const { manager } = await termFor(workspace, topic);
         return sendJson(response, 200, await manager.spawnAgent(body.agent));
+      }
+
+      const agentTermAttachment = url.pathname.match(
+        /^\/api\/chiaro\/agent-term\/([^/]+)\/attachment$/,
+      );
+      if (agentTermAttachment && method === "POST") {
+        const instanceId = decodeURIComponent(agentTermAttachment[1]);
+        const { manager } = await termFor(workspace, topic);
+        if (!manager.authorize(instanceId, url.searchParams.get("cap"))) {
+          throw new HttpError(401, "terminal capability rejected");
+        }
+        const attachment = await saveAttachment(paths.contextDir, await readJsonBody(request));
+        return sendJson(response, 201, { path: attachment.path });
       }
 
       const agentTerm = url.pathname.match(/^\/api\/chiaro\/agent-term\/([^/]+)$/);

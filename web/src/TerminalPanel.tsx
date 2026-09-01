@@ -2,6 +2,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  ClipboardEvent as ReactClipboardEvent,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
@@ -13,6 +14,7 @@ import {
   loadAgentTerms,
   postAgentTerm,
   resumeAgentTerm,
+  uploadAgentAttachment,
 } from "./bridge";
 import type {
   AgentState,
@@ -34,6 +36,7 @@ const FONT_SIZE_STORAGE_KEY = "adw.terminal.fontSize";
 const DEFAULT_FONT_SIZE = 13;
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
+const MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024;
 
 function storedFontSize() {
   const stored = window.localStorage.getItem(FONT_SIZE_STORAGE_KEY);
@@ -56,6 +59,7 @@ function TerminalView({
   active,
   fontSize,
   onEnded,
+  onError,
   onFontZoom,
   onRestart,
   session,
@@ -64,6 +68,7 @@ function TerminalView({
   active: boolean;
   fontSize: number;
   onEnded: (instanceId: string) => void;
+  onError: (message: string) => void;
   onFontZoom: (delta: number) => void;
   onRestart: (instanceId: string, agent: string) => Promise<void>;
   session: LiveAgentTerm;
@@ -249,6 +254,37 @@ function TerminalView({
     };
   }, [onEnded, scheduleFit, session.capability, session.instanceId, topic]);
 
+  const pasteAttachment = (event: ReactClipboardEvent<HTMLElement>) => {
+    const clipboard = event.clipboardData;
+    if (clipboard.getData("text/plain") !== "") return;
+    const images = Array.from(clipboard.items).filter((item) => (
+      item.kind === "file" && item.type.startsWith("image/")
+    ));
+    if (images.length === 0) return;
+    event.preventDefault();
+    if (images.length !== 1) {
+      onError("一次只能粘贴一张图片");
+      return;
+    }
+    const image = images[0].getAsFile();
+    if (!image) {
+      onError("无法读取剪贴板图片");
+      return;
+    }
+    if (image.size > MAX_ATTACHMENT_BYTES) {
+      onError("图片原始数据超过 18 MiB");
+      return;
+    }
+    void uploadAgentAttachment(topic, session.instanceId, session.capability, image)
+      .then((attachmentPath) => {
+        terminalRef.current?.paste(attachmentPath);
+        onError("");
+      })
+      .catch((cause: unknown) => {
+        onError(`图片粘贴失败：${cause instanceof Error ? cause.message : String(cause)}`);
+      });
+  };
+
   const restart = async () => {
     setRestarting(true);
     try {
@@ -266,6 +302,7 @@ function TerminalView({
       className={`terminal-view${active ? " active" : ""}`}
       data-agent={session.agent}
       data-instance-id={session.instanceId}
+      onPasteCapture={pasteAttachment}
       ref={rootRef}
     >
       <div aria-label={`${session.label} 终端`} className="terminal-host" ref={hostRef} />
@@ -673,6 +710,7 @@ export function TerminalPanel({
               fontSize={fontSize}
               key={session.instanceId}
               onEnded={markEnded}
+              onError={setError}
               onFontZoom={zoomFont}
               onRestart={restartInstance}
               session={session}
