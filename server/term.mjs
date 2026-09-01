@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,6 +44,22 @@ function positiveInteger(value, fallback, name) {
 
 function configError(configPath, message) {
   return new Error(`agent 配置 ${configPath}：${message}`);
+}
+
+function assertPtyCwd(project) {
+  const reject = (reason) => {
+    const error = new Error(`PTY 工作目录不可用：${project}（${reason}）`);
+    error.statusCode = 422;
+    throw error;
+  };
+  if (path.win32.parse(project).root.startsWith("\\\\")) reject("不支持 UNC 路径");
+  if (!path.isAbsolute(project)) reject("必须是绝对路径");
+  try {
+    if (!statSync(project).isDirectory()) reject("不是目录");
+  } catch (error) {
+    if (error.statusCode === 422) throw error;
+    reject(error.code || error.message);
+  }
 }
 
 function validateArgv(value, field, configPath) {
@@ -246,6 +262,7 @@ export async function createTermManager({
   }
 
   function launch(session, argv, onExit) {
+    assertPtyCwd(project);
     const { file, args } = ptyInvocation(argv);
     const terminal = spawnPty(file, args, {
       name: "xterm-256color",
