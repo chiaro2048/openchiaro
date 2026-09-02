@@ -12,6 +12,7 @@ import {
   terminalSocketUrl,
 } from "./canvas-logic.mjs";
 import { readSettings, SETTINGS, writeSetting } from "../../web/src/settings.mjs";
+import "../../web/src/tokens.css";
 import "./chunk.css";
 
 const h = React.createElement;
