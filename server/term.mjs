@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,7 @@ const MAX_OUTPUT_BYTES = 200 * 1024;
 const MAX_DEAD_SESSIONS = 10;
 const MAX_ACTIVE_SESSIONS = 8;
 const RESUME_PROBE_MS = 1500;
+let cachedDriveMappings;
 const HOOK_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -44,6 +45,54 @@ function positiveInteger(value, fallback, name) {
 
 function configError(configPath, message) {
   return new Error(`agent 配置 ${configPath}：${message}`);
+}
+
+function rejectPtyCwd(project, reason) {
+  const error = new Error(`PTY 工作目录不可用：${project}（${reason}）`);
+  error.statusCode = 422;
+  throw error;
+}
+
+function mappedWindowsDrives() {
+  if (cachedDriveMappings) return cachedDriveMappings;
+  cachedDriveMappings = [];
+  if (process.platform !== "win32") return cachedDriveMappings;
+  for (let code = 65; code <= 90; code += 1) {
+    const drive = `${String.fromCharCode(code)}:\\`;
+    try {
+      const target = realpathSync.native(drive);
+      if (path.win32.parse(target).root.startsWith("\\\\")) {
+        cachedDriveMappings.push([drive, target]);
+      }
+    } catch {
+      // Unavailable drive letters are not mappings.
+    }
+  }
+  return cachedDriveMappings;
+}
+
+export function translatePtyCwd(project, mappings = mappedWindowsDrives()) {
+  if (!path.win32.parse(project).root.startsWith("\\\\")) return project;
+  const match = mappings
+    .map(([drive, target]) => ({ drive, target, relative: path.win32.relative(target, project) }))
+    .filter(({ relative }) => relative === ""
+      || (relative !== ".." && !relative.startsWith(`..${path.win32.sep}`)
+        && !path.win32.isAbsolute(relative)))
+    .sort((left, right) => right.target.length - left.target.length)[0];
+  if (!match) rejectPtyCwd(project, "请先映射网络驱动器");
+  return path.win32.join(match.drive, match.relative);
+}
+
+function resolvePtyCwd(project) {
+  const cwd = translatePtyCwd(project);
+  if (!path.isAbsolute(cwd)) rejectPtyCwd(project, "必须是绝对路径");
+  try {
+    if (!statSync(cwd).isDirectory()) rejectPtyCwd(project, "不是目录");
+  } catch (error) {
+    if (error.statusCode === 422) throw error;
+    rejectPtyCwd(project, error.code || error.message);
+  }
+  return cwd;
 }
 
 function validateArgv(value, field, configPath) {
@@ -246,12 +295,13 @@ export async function createTermManager({
   }
 
   function launch(session, argv, onExit) {
+    const cwd = resolvePtyCwd(project);
     const { file, args } = ptyInvocation(argv);
     const terminal = spawnPty(file, args, {
       name: "xterm-256color",
       cols: 80,
       rows: 24,
-      cwd: project,
+      cwd,
       env: {
         ...process.env,
         CHIARO_TOPIC: topic,
