@@ -108,11 +108,15 @@ function ChiaroTerminal({ fontSize, workspace, topic }) {
   React.useEffect(() => {
     const host = hostRef.current;
     if (!host || !session) return undefined;
+    const palette = getComputedStyle(host.closest(".chiaro-page"));
     const terminal = new Terminal({
       cursorBlink: true,
       fontFamily: 'Consolas, "Cascadia Mono", monospace',
       fontSize,
-      theme: { background: "#111827", foreground: "#e5e7eb" },
+      theme: {
+        background: palette.getPropertyValue("--chiaro-xterm-background").trim(),
+        foreground: palette.getPropertyValue("--chiaro-xterm-foreground").trim(),
+      },
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
@@ -340,22 +344,31 @@ export function ChiaroSettings({ ctx }) {
     });
   };
 
-  return h("div", { className: "chiaro-settings-section" },
+  return h("div", { className: "chiaro-settings-section", "data-theme": values.theme },
     h("h2", null, "Chiaro 设置/关于"),
     h("p", { className: "chiaro-settings-intro" }, "个性化设置只保存在当前浏览器。"),
     h("section", null,
       h("h3", null, "通用"),
-      SETTINGS.filter((setting) => setting.kind === "number").map((setting) => h("label", { className: "chiaro-settings-row", key: setting.id },
+      SETTINGS.map((setting) => h("label", { className: "chiaro-settings-row", key: setting.id },
         h("span", null, h("strong", null, setting.label), h("small", null, setting.description)),
-        h("input", {
-          "aria-label": setting.label,
-          type: "number",
-          min: setting.min,
-          max: setting.max,
-          step: setting.step,
-          value: values[setting.id],
-          onChange: (event) => changeSetting(setting, Number(event.target.value)),
-        })))),
+        setting.kind === "select"
+          ? h("select", {
+            "aria-label": setting.label,
+            value: values[setting.id],
+            onChange: (event) => changeSetting(setting, event.target.value),
+          }, setting.options.map((option) => h("option", {
+            key: option.value,
+            value: option.value,
+          }, option.label)))
+          : h("input", {
+            "aria-label": setting.label,
+            type: "number",
+            min: setting.min,
+            max: setting.max,
+            step: setting.step,
+            value: values[setting.id],
+            onChange: (event) => changeSetting(setting, Number(event.target.value)),
+          })))),
     info ? h("section", null,
       h("h3", null, "关于"),
       h("dl", { className: "chiaro-settings-about" },
@@ -630,7 +643,12 @@ export function ChiaroCanvas({ ctx, onClose }) {
     }
   };
 
-  return h("div", { className: "chiaro-page", role: "region", "aria-label": "Chiaro 画布" },
+  return h("div", {
+    className: "chiaro-page",
+    "data-theme": settingValues.theme,
+    role: "region",
+    "aria-label": "Chiaro 画布",
+  },
     h("header", { className: "chiaro-toolbar" },
       h("strong", null, "Chiaro"),
       h("select", {
@@ -655,6 +673,7 @@ export function ChiaroCanvas({ ctx, onClose }) {
           initialData: snapshot.scene,
           excalidrawAPI: (api) => { apiRef.current = api; },
           onChange,
+          theme: settingValues.theme,
         }) : workspace && topicsLoaded && topics.length === 0
           ? h("div", { className: "chiaro-empty" },
             h("strong", null, "此 workspace 还没有 chiaro topic"),
