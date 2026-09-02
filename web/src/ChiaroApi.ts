@@ -70,8 +70,11 @@ export type FocusInjectionEvent = {
 };
 
 export class SceneConflictError extends Error {
-  constructor(readonly latestVersion: number) {
+  readonly latestVersion: number;
+
+  constructor(latestVersion: number) {
     super("画布已被他人修改");
+    this.latestVersion = latestVersion;
   }
 }
 
