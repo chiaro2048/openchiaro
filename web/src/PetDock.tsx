@@ -48,38 +48,44 @@ export function PetDock({
 }) {
   if (!agents.length) return null;
   return (
-    <div aria-label="Agent 在场状态" className="pet-dock">
-      {agents.map(({ agent, instanceId, justReplied, label, ordinal, resumable, state }) => {
-        const canResume = resumable && state === "away";
-        const status = justReplied ? "刚回复" : canResume ? "可恢复" : STATE_LABELS[state];
-        const action = canResume ? "点击恢复终端" : "点击切换终端";
-        const displayName = `${label} · ${ordinal}`;
-        return (
-          <button
-            aria-label={`${displayName}，${status}，${action}`}
-            aria-pressed={instanceId === activeInstanceId}
-            className={`pet pet-${state}${instanceId === activeInstanceId ? " pet-selected" : ""}${canResume ? " pet-resumable" : ""}${justReplied ? " pet-replied" : ""}`}
-            key={instanceId}
-            onClick={() => onSelect(instanceId)}
-            onContextMenu={(event) => onContextMenu(event, instanceId)}
-            title={`${displayName} · ${status}`}
-            type="button"
-          >
-            {state === "away" && !canResume && <span aria-hidden="true" className="pet-zzz">zzz</span>}
-            {canResume && <span aria-hidden="true" className="pet-resume">↻</span>}
-            {state === "working" && <span aria-hidden="true" className="pet-thought">···</span>}
-            <span aria-hidden="true" className="pet-animal">
-              {AGENT_MARKS[agent] ? (
-                <svg className="pet-mark" fill={AGENT_MARKS[agent].fill} viewBox="0 0 24 24">
-                  <path d={AGENT_MARKS[agent].path} />
-                </svg>
-              ) : (
-                petFor(agent)
-              )}
-            </span>
-          </button>
-        );
-      })}
-    </div>
+    <section className="pet-dock-wrap">
+      <div className="pet-dock-caption">
+        <strong>Pet Dock</strong>
+        <span>Agent 在场状态</span>
+      </div>
+      <div aria-label="Agent 在场状态" className="pet-dock">
+        {agents.map(({ agent, instanceId, justReplied, label, ordinal, resumable, state }) => {
+          const canResume = resumable && state === "away";
+          const status = justReplied ? "刚回复" : canResume ? "可恢复" : STATE_LABELS[state];
+          const action = canResume ? "点击恢复终端" : "点击切换终端";
+          const displayName = `${label} · ${ordinal}`;
+          return (
+            <button
+              aria-label={`${displayName}，${status}，${action}`}
+              aria-pressed={instanceId === activeInstanceId}
+              className={`pet pet-${state}${instanceId === activeInstanceId ? " pet-selected" : ""}${canResume ? " pet-resumable" : ""}${justReplied ? " pet-replied" : ""}`}
+              key={instanceId}
+              onClick={() => onSelect(instanceId)}
+              onContextMenu={(event) => onContextMenu(event, instanceId)}
+              title={`${displayName} · ${status}`}
+              type="button"
+            >
+              {state === "away" && !canResume && <span aria-hidden="true" className="pet-zzz">zzz</span>}
+              {canResume && <span aria-hidden="true" className="pet-resume">↻</span>}
+              {state === "working" && <span aria-hidden="true" className="pet-thought">···</span>}
+              <span aria-hidden="true" className="pet-animal">
+                {AGENT_MARKS[agent] ? (
+                  <svg className="pet-mark" fill={AGENT_MARKS[agent].fill} viewBox="0 0 24 24">
+                    <path d={AGENT_MARKS[agent].path} />
+                  </svg>
+                ) : (
+                  petFor(agent)
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }

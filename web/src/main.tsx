@@ -207,8 +207,19 @@ function App() {
     <main className="app-shell">
       <section className="canvas-shell">
         <header className="topic-bar">
-          <label>
-            画布
+          <div className="topic-brand">
+            <span aria-hidden="true" className="topic-brand-mark">
+              <svg className="brand-mark" viewBox="0 0 100 100">
+                <path
+                  fillRule="evenodd"
+                  d="M50 6 C53 37, 63 47, 94 50 C63 53, 53 63, 50 94 C47 63, 37 53, 6 50 C37 47, 47 37, 50 6 Z M50 39 A11 11 0 1 0 50 61 A11 11 0 1 0 50 39 Z"
+                />
+              </svg>
+            </span>
+            <strong>Chiaro</strong>
+          </div>
+          <label className="topic-picker">
+            <span className="topic-label">topic</span>
             <select
               aria-label="当前画布"
               disabled={topics.length === 0}
@@ -218,15 +229,28 @@ function App() {
               {topics.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </label>
-          <button
-            aria-label="打开设置"
-            className="settings-trigger"
-            onClick={() => setSettingsOpen(true)}
-            title="设置"
-            type="button"
-          >
-            ⚙
-          </button>
+          <div className="topic-actions">
+            <button
+              aria-label={`切换为${settings.theme === "light" ? "暗色" : "亮色"}主题`}
+              aria-pressed={settings.theme === "dark"}
+              className="theme-toggle"
+              onClick={() => changeSetting("theme", settings.theme === "light" ? "dark" : "light")}
+              title="切换亮色与暗色主题"
+              type="button"
+            >
+              <span aria-hidden="true" className="theme-indicator" />
+              <span>light ⇄ dark</span>
+            </button>
+            <button
+              aria-label="打开设置"
+              className="settings-trigger"
+              onClick={() => setSettingsOpen(true)}
+              title="设置"
+              type="button"
+            >
+              ⚙
+            </button>
+          </div>
         </header>
         {topic ? (
           <CanvasPane
