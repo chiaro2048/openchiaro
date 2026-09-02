@@ -1,64 +1,31 @@
-import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import { SceneConflictError } from "./ChiaroApi";
 import type {
-  BinaryFiles,
-  ExcalidrawInitialDataState,
-} from "@excalidraw/excalidraw/types";
+  AgentStateEvent,
+  AgentTermCatalog,
+  AgentTermSession,
+  ChiaroApi,
+  FocusInjectionEvent,
+  GestureOperation,
+  HubHealth,
+  SceneSnapshot,
+  TopicCatalog,
+} from "./ChiaroApi";
 
-export type SceneData = ExcalidrawInitialDataState & {
-  elements: readonly ExcalidrawElement[];
-  files?: BinaryFiles;
-};
-
-export type SceneSnapshot = { scene: SceneData; version: number };
-
-export type AgentTermSummary = {
-  instanceId: string;
-  agent: string;
-  label: string;
-  ordinal: number;
-  alive: boolean;
-  resumable: boolean;
-  startedAt: number;
-};
-
-export type AgentTermCatalog = {
-  agents: { agent: string; label: string }[];
-  instances: AgentTermSummary[];
-};
-
-export type AgentTermSession = {
-  instanceId: string;
-  capability: string;
-  resumed: boolean;
-  freshStart?: boolean;
-};
-
-export type AgentState = "away" | "listening" | "working";
-
-export type HubHealth = {
-  defaultShell: string;
-  pid: number;
-  platform: string;
-  port: number;
-  project: string;
-  topic: string;
-  topicDir: string;
-  version: string;
-};
-
-export type TopicCatalog = { topic: string; topics: string[] };
-
-export type GestureOperation = {
-  type: "moved" | "added" | "deleted";
-  id: string;
-  label: string;
-};
-
-export class SceneConflictError extends Error {
-  constructor(readonly latestVersion: number) {
-    super("画布已被他人修改");
-  }
-}
+export { SceneConflictError } from "./ChiaroApi";
+export type {
+  AgentState,
+  AgentStateEvent,
+  AgentTermCatalog,
+  AgentTermSession,
+  AgentTermSummary,
+  ChiaroApi,
+  FocusInjectionEvent,
+  GestureOperation,
+  HubHealth,
+  SceneData,
+  SceneSnapshot,
+  TopicCatalog,
+} from "./ChiaroApi";
 
 async function responseError(response: Response): Promise<Error> {
   const raw = await response.text();
@@ -276,20 +243,6 @@ export async function postGesture(
   if (!response.ok) throw await responseError(response);
 }
 
-export type AgentStateEvent = {
-  type: "agent-state";
-  instanceId: string;
-  agent: string;
-  state: AgentState;
-};
-
-export type FocusInjectionEvent = {
-  type: "focus-injection";
-  agent: string;
-  status: "ok" | "none" | "failed";
-  reason: string;
-};
-
 function connectHubSocket(
   topic: string,
   handleMessage: (message: { type?: string } & Record<string, unknown>) => void,
@@ -373,3 +326,29 @@ export function connectCanvasUpdates(
     },
   );
 }
+
+export function terminalSocketUrl(session: AgentTermSession, topic: string): string {
+  const url = new URL(`/term/${encodeURIComponent(session.instanceId)}`, window.location.href);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("cap", session.capability);
+  url.searchParams.set("topic", topic);
+  return url.toString();
+}
+
+export const defaultChiaroApi: ChiaroApi = {
+  connectAgentStateEvents,
+  connectCanvasUpdates,
+  createTopic,
+  deleteAgentTerm,
+  loadAgentTerms,
+  loadHealth,
+  loadScene,
+  loadTopics,
+  postAgentTerm,
+  postFocus,
+  postGesture,
+  postScene,
+  resumeAgentTerm,
+  terminalSocketUrl,
+  uploadAgentAttachment,
+};
