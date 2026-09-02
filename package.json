@@ -29,7 +29,8 @@
     "build": "tsc --noEmit && vite build && vite build --config dsh/vite.config.mjs",
     "copy:skill": "node -e \"const fs=require('node:fs');fs.copyFileSync('skill/SKILL.md','SKILL.md');fs.cpSync('skill/references','references',{recursive:true,force:true})\"",
     "prepack": "npm run copy:skill",
-    "prepublishOnly": "npm run build && npm run copy:skill"
+    "prepublishOnly": "npm run build && npm run copy:skill",
+    "version": "node scripts/sync-version.mjs && git add dsh/package.json"
   },
   "dependencies": {
     "@lydell/node-pty": "1.2.0-beta.15",
