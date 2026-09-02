@@ -344,7 +344,7 @@ export function ChiaroSettings({ ctx }) {
     h("p", { className: "chiaro-settings-intro" }, "个性化设置只保存在当前浏览器。"),
     h("section", null,
       h("h3", null, "通用"),
-      SETTINGS.map((setting) => h("label", { className: "chiaro-settings-row", key: setting.id },
+      SETTINGS.filter((setting) => setting.kind === "number").map((setting) => h("label", { className: "chiaro-settings-row", key: setting.id },
         h("span", null, h("strong", null, setting.label), h("small", null, setting.description)),
         h("input", {
           "aria-label": setting.label,

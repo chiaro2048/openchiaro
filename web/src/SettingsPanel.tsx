@@ -1,5 +1,6 @@
 import type { HubHealth } from "./bridge";
 import { SETTINGS } from "./settings.mjs";
+import type { SettingValue, SettingsValues } from "./settings.mjs";
 
 export function SettingsPanel({
   buildVersion,
@@ -11,10 +12,10 @@ export function SettingsPanel({
 }: {
   buildVersion: string;
   health: HubHealth;
-  onChange: (id: string, value: number) => void;
+  onChange: (id: string, value: SettingValue) => void;
   onClose: () => void;
   topic: string;
-  values: Record<string, number>;
+  values: SettingsValues;
 }) {
   const [frontendVersion, buildHash = "开发构建"] = buildVersion.split("+", 2);
   const consistent = health.version === frontendVersion;
@@ -41,15 +42,27 @@ export function SettingsPanel({
             {SETTINGS.map((setting) => (
               <label className="settings-row" key={setting.id}>
                 <span><strong>{setting.label}</strong><small>{setting.description}</small></span>
-                <input
-                  aria-label={setting.label}
-                  max={setting.max}
-                  min={setting.min}
-                  onChange={(event) => onChange(setting.id, Number(event.target.value))}
-                  step={setting.step}
-                  type="number"
-                  value={values[setting.id]}
-                />
+                {setting.kind === "select" ? (
+                  <select
+                    aria-label={setting.label}
+                    onChange={(event) => onChange(setting.id, event.target.value as "light" | "dark")}
+                    value={values[setting.id]}
+                  >
+                    {setting.options.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    aria-label={setting.label}
+                    max={setting.max}
+                    min={setting.min}
+                    onChange={(event) => onChange(setting.id, Number(event.target.value))}
+                    step={setting.step}
+                    type="number"
+                    value={values[setting.id]}
+                  />
+                )}
               </label>
             ))}
           </section>

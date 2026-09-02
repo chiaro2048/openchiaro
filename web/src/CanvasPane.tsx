@@ -21,10 +21,12 @@ import {
   diffGestureOperations,
   summarizeGestureOperations,
 } from "./sceneDiff";
+import type { Theme } from "./settings.mjs";
 
 type CanvasPaneProps = {
   onApiReady: (api: ExcalidrawImperativeAPI) => void;
   onFocusChange: (labels: string[]) => void;
+  theme: Theme;
   topic: string;
 };
 
@@ -81,7 +83,7 @@ function labelsForSelection(elements: readonly ExcalidrawElement[], ids: string[
   return [...new Set(labels.map((label) => label.trim()).filter(Boolean))];
 }
 
-export function CanvasPane({ onApiReady, onFocusChange, topic }: CanvasPaneProps) {
+export function CanvasPane({ onApiReady, onFocusChange, theme, topic }: CanvasPaneProps) {
   const [scene, setScene] = useState<SceneData | null>(null);
   const [error, setError] = useState("");
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
@@ -322,6 +324,7 @@ export function CanvasPane({ onApiReady, onFocusChange, topic }: CanvasPaneProps
           onApiReady(api);
         }}
         onChange={onChange}
+        theme={theme}
         validateEmbeddable={validateEmbeddable}
         renderEmbeddable={renderTerminalEmbed}
       />

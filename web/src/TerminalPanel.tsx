@@ -22,6 +22,7 @@ import type {
   AgentTermSummary,
 } from "./bridge";
 import { PetDock } from "./PetDock";
+import type { Theme } from "./settings.mjs";
 
 type LiveAgentTerm = AgentTermSession & {
   agent: string;
@@ -33,6 +34,10 @@ type LiveAgentTerm = AgentTermSession & {
 const MAX_RECONNECT_ATTEMPTS = 3;
 const MAX_RECONNECT_WINDOW_MS = 6000;
 const MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024;
+const DARK_XTERM_THEME = {
+  background: "#12151d",
+  foreground: "#e7ecf6",
+};
 
 function terminalSocketUrl(session: AgentTermSession, topic: string) {
   const url = new URL(`/term/${encodeURIComponent(session.instanceId)}`, window.location.href);
@@ -50,6 +55,7 @@ function TerminalView({
   onFontZoom,
   onRestart,
   session,
+  theme,
   topic,
 }: {
   active: boolean;
@@ -59,6 +65,7 @@ function TerminalView({
   onFontZoom: (delta: number) => void;
   onRestart: (instanceId: string, agent: string) => Promise<void>;
   session: LiveAgentTerm;
+  theme: Theme;
   topic: string;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -106,15 +113,11 @@ function TerminalView({
     const host = hostRef.current;
     const root = rootRef.current;
     if (!host || !root) return;
-    const palette = window.getComputedStyle(root);
     const terminal = new Terminal({
       cursorBlink: true,
       fontFamily: 'Consolas, "Cascadia Mono", monospace',
       fontSize: fontSizeRef.current,
-      theme: {
-        background: palette.getPropertyValue("--chiaro-terminal").trim(),
-        foreground: palette.getPropertyValue("--chiaro-text").trim(),
-      },
+      theme: DARK_XTERM_THEME,
     });
     terminal.attachCustomWheelEventHandler((event) => {
       if (!event.ctrlKey || event.deltaY === 0) return true;
@@ -154,6 +157,10 @@ function TerminalView({
     terminalRef.current.options.fontSize = fontSize;
     scheduleFit();
   }, [fontSize, scheduleFit]);
+
+  useEffect(() => {
+    if (terminalRef.current) terminalRef.current.options.theme = DARK_XTERM_THEME;
+  }, [theme]);
 
   useEffect(() => {
     let stopped = false;
@@ -356,6 +363,7 @@ export function TerminalPanel({
   onResizeBy,
   onResizeStart,
   onToggleCollapse,
+  theme,
   topic,
   width,
 }: {
@@ -367,6 +375,7 @@ export function TerminalPanel({
   onResizeBy: (delta: number) => void;
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onToggleCollapse: () => void;
+  theme: Theme;
   topic: string;
   width: number;
 }) {
@@ -726,6 +735,7 @@ export function TerminalPanel({
               onFontZoom={onFontZoom}
               onRestart={restartInstance}
               session={session}
+              theme={theme}
               topic={topic}
             />
           ))}

@@ -7,6 +7,7 @@ import { createTopic, loadHealth, loadTopics } from "./bridge";
 import type { HubHealth } from "./bridge";
 import { SettingsPanel } from "./SettingsPanel";
 import { readSettings, SETTINGS, writeSetting } from "./settings.mjs";
+import type { SettingValue, SettingsValues } from "./settings.mjs";
 import { TerminalPanel } from "./TerminalPanel";
 import "./styles.css";
 
@@ -52,6 +53,9 @@ function storedSettings() {
   }
 }
 
+const initialSettings = storedSettings();
+document.documentElement.dataset.theme = initialSettings.theme;
+
 function App() {
   const [requestedTopic] = useState(() => new URLSearchParams(window.location.search).get("topic"));
   const [hubIdentity, setHubIdentity] = useState<{
@@ -67,7 +71,7 @@ function App() {
   const [focusLabels, setFocusLabels] = useState<string[]>([]);
   const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [settings, setSettings] = useState<Record<string, number>>(storedSettings);
+  const [settings, setSettings] = useState<SettingsValues>(initialSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
@@ -100,6 +104,10 @@ function App() {
   }, [hubIdentity, topic]);
 
   useEffect(() => {
+    document.documentElement.dataset.theme = settings.theme;
+  }, [settings.theme]);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(Math.round(sidebarWidth)));
     } catch (error) {
@@ -111,7 +119,7 @@ function App() {
     setSidebarWidth((current) => clampSidebarWidth(current + delta));
   };
 
-  const changeSetting = (id: string, value: number) => {
+  const changeSetting = (id: string, value: SettingValue) => {
     const definition = SETTINGS.find((setting) => setting.id === id);
     if (!definition) return;
     setSettings((current) => {
@@ -129,7 +137,9 @@ function App() {
     const definition = SETTINGS.find((setting) => setting.id === id);
     if (!definition) return;
     setSettings((current) => {
-      let next = current[id] + delta;
+      const currentValue = current[id];
+      if (typeof currentValue !== "number") return current;
+      let next: SettingValue = currentValue + delta;
       try {
         next = writeSetting(window.localStorage, definition, next);
       } catch (error) {
@@ -197,8 +207,19 @@ function App() {
     <main className="app-shell">
       <section className="canvas-shell">
         <header className="topic-bar">
-          <label>
-            画布
+          <div className="topic-brand">
+            <span aria-hidden="true" className="topic-brand-mark">
+              <svg className="brand-mark" viewBox="0 0 100 100">
+                <path
+                  fillRule="evenodd"
+                  d="M50 6 C53 37, 63 47, 94 50 C63 53, 53 63, 50 94 C47 63, 37 53, 6 50 C37 47, 47 37, 50 6 Z M50 39 A11 11 0 1 0 50 61 A11 11 0 1 0 50 39 Z"
+                />
+              </svg>
+            </span>
+            <strong>Chiaro</strong>
+          </div>
+          <label className="topic-picker">
+            <span className="topic-label">topic</span>
             <select
               aria-label="当前画布"
               disabled={topics.length === 0}
@@ -208,21 +229,35 @@ function App() {
               {topics.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </label>
-          <button
-            aria-label="打开设置"
-            className="settings-trigger"
-            onClick={() => setSettingsOpen(true)}
-            title="设置"
-            type="button"
-          >
-            ⚙
-          </button>
+          <div className="topic-actions">
+            <button
+              aria-label={`切换为${settings.theme === "light" ? "暗色" : "亮色"}主题`}
+              aria-pressed={settings.theme === "dark"}
+              className="theme-toggle"
+              onClick={() => changeSetting("theme", settings.theme === "light" ? "dark" : "light")}
+              title="切换亮色与暗色主题"
+              type="button"
+            >
+              <span aria-hidden="true" className="theme-indicator" />
+              <span>light ⇄ dark</span>
+            </button>
+            <button
+              aria-label="打开设置"
+              className="settings-trigger"
+              onClick={() => setSettingsOpen(true)}
+              title="设置"
+              type="button"
+            >
+              ⚙
+            </button>
+          </div>
         </header>
         {topic ? (
           <CanvasPane
             key={topic}
             onApiReady={() => {}}
             onFocusChange={setFocusLabels}
+            theme={settings.theme}
             topic={topic}
           />
         ) : (
@@ -260,6 +295,7 @@ function App() {
           onResizeStart={startSidebarResize}
           onFontZoom={(delta) => changeSettingBy("terminalFontSize", delta)}
           onToggleCollapse={() => setSidebarCollapsed((current) => !current)}
+          theme={settings.theme}
           topic={topic}
           width={sidebarWidth}
         />
