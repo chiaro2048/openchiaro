@@ -921,28 +921,27 @@ body {
   align-items: center;
   gap: 12px;
   z-index: 6;
-  background: color-mix(in srgb, var(--chiaro-chrome) 90%, transparent);
-  border-right: 1px solid var(--chiaro-border);
-  border-radius: 0 var(--chiaro-radius-small) var(--chiaro-radius-small) 0;
 }
 
 .outline-tick {
   position: relative;
   width: 12px;
-  height: 4px;
+  height: 2px;
+  max-height: 2px;
   padding: 0;
   border: 0;
-  border-radius: 2px;
-  background: var(--chiaro-muted);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chiaro-muted) 64%, transparent);
   cursor: pointer;
-  transition: width 0.14s ease-out, height 0.14s ease-out;
+  transition: width 150ms ease-out, background-color 150ms ease-out;
 }
 
-.outline-tick.peak { background: var(--chiaro-text); }
+.outline-tick.peak {
+  background: var(--chiaro-text);
+}
 
 .outline-tick.active {
   width: 14px;
-  height: 5px;
   background: var(--chiaro-purple);
 }
 
@@ -951,16 +950,44 @@ body {
   position: absolute;
   left: calc(100% + 10px);
   top: 50%;
-  transform: translateY(-50%);
-  white-space: nowrap;
-  background: var(--chiaro-chrome);
-  color: var(--chiaro-text);
-  font: 14px/1.2 Consolas, "Cascadia Mono", monospace;
-  padding: 8px 11px;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 56px));
+  overflow: hidden;
+  padding: 10px 12px;
   border: 1px solid var(--chiaro-border);
-  border-radius: var(--chiaro-radius-small);
+  border-radius: 12px;
+  transform: translateY(-50%);
+  color: var(--chiaro-text);
+  background: var(--chiaro-panel);
+  box-shadow: var(--chiaro-shadow);
+  font: 13px/1.45 Inter, "Microsoft YaHei", sans-serif;
+  overflow-wrap: anywhere;
   pointer-events: none;
+  text-align: left;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
   z-index: 7;
 }
 
-.outline-tick.peak .outline-tip { display: block; }
+.outline-tick.peak .outline-tip {
+  display: -webkit-box;
+  animation: outline-tip-in 160ms ease-out both;
+}
+
+@keyframes outline-tip-in {
+  from {
+    opacity: 0;
+    transform: translate(-4px, -50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .outline-tick {
+    transition-duration: 0.01ms;
+  }
+
+  .outline-tick.peak .outline-tip {
+    animation: none;
+  }
+}
