@@ -1,4 +1,4 @@
-import type { AgentState } from "./bridge";
+import type { AgentState } from "./ChiaroApi";
 import type { MouseEvent as ReactMouseEvent } from "react";
 
 export type PetAgent = {

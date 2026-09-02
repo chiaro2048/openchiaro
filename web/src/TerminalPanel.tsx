@@ -8,19 +8,12 @@ import type {
 } from "react";
 import "@xterm/xterm/css/xterm.css";
 
-import {
-  connectAgentStateEvents,
-  deleteAgentTerm,
-  loadAgentTerms,
-  postAgentTerm,
-  resumeAgentTerm,
-  uploadAgentAttachment,
-} from "./bridge";
+import { useChiaroApi } from "./ChiaroApi";
 import type {
   AgentState,
   AgentTermSession,
   AgentTermSummary,
-} from "./bridge";
+} from "./ChiaroApi";
 import { PetDock } from "./PetDock";
 import type { Theme } from "./settings.mjs";
 
@@ -38,14 +31,6 @@ const DARK_XTERM_THEME = {
   background: "#12151d",
   foreground: "#e7ecf6",
 };
-
-function terminalSocketUrl(session: AgentTermSession, topic: string) {
-  const url = new URL(`/term/${encodeURIComponent(session.instanceId)}`, window.location.href);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.searchParams.set("cap", session.capability);
-  url.searchParams.set("topic", topic);
-  return url.toString();
-}
 
 function TerminalView({
   active,
@@ -68,6 +53,7 @@ function TerminalView({
   theme: Theme;
   topic: string;
 }) {
+  const api = useChiaroApi();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -195,7 +181,7 @@ function TerminalView({
     };
     const connect = () => {
       if (stopped) return;
-      const socket = new WebSocket(terminalSocketUrl(session, topic));
+      const socket = new WebSocket(api.terminalSocketUrl(session, topic));
       socket.binaryType = "arraybuffer";
       socketRef.current = socket;
       socket.onopen = () => {
@@ -224,7 +210,7 @@ function TerminalView({
       socket.onclose = async () => {
         if (stopped) return;
         try {
-          const summary = (await loadAgentTerms(topic, AbortSignal.timeout(750)))
+          const summary = (await api.loadAgentTerms(topic, AbortSignal.timeout(750)))
             .instances.find(({ instanceId }) => instanceId === session.instanceId);
           if (summary?.alive) reconnect();
           else {
@@ -246,7 +232,7 @@ function TerminalView({
       socketRef.current = null;
       socket?.close();
     };
-  }, [onEnded, scheduleFit, session.capability, session.instanceId, topic]);
+  }, [api, onEnded, scheduleFit, session.capability, session.instanceId, topic]);
 
   const pasteImages = (images: Blob[]) => {
     if (images.length === 0) return;
@@ -259,7 +245,7 @@ function TerminalView({
       onError("图片原始数据超过 18 MiB");
       return;
     }
-    void uploadAgentAttachment(topic, session.instanceId, session.capability, image)
+    void api.uploadAgentAttachment(topic, session.instanceId, session.capability, image)
       .then((attachmentPath) => {
         terminalRef.current?.paste(attachmentPath);
         onError("");
@@ -379,6 +365,7 @@ export function TerminalPanel({
   topic: string;
   width: number;
 }) {
+  const api = useChiaroApi();
   const [agentTypes, setAgentTypes] = useState<{ agent: string; label: string }[]>([]);
   const [summaries, setSummaries] = useState<AgentTermSummary[]>([]);
   const [sessions, setSessions] = useState<Record<string, LiveAgentTerm>>({});
@@ -393,7 +380,7 @@ export function TerminalPanel({
   const [error, setError] = useState("");
 
   const refreshSummaries = useCallback(async () => {
-    const catalog = await loadAgentTerms(topic);
+    const catalog = await api.loadAgentTerms(topic);
     setAgentTypes(catalog.agents);
     setSummaries(catalog.instances);
     setAgentStates((current) => {
@@ -406,12 +393,12 @@ export function TerminalPanel({
       return states;
     });
     return catalog;
-  }, [topic]);
+  }, [api, topic]);
 
   const launchAgent = useCallback(async (agent: string) => {
     setBusyAgent(agent);
     try {
-      const session = await postAgentTerm(topic, agent);
+      const session = await api.postAgentTerm(topic, agent);
       const { instances } = await refreshSummaries();
       const summary = instances.find((item) => item.instanceId === session.instanceId);
       setSessions((current) => ({
@@ -433,12 +420,12 @@ export function TerminalPanel({
     } finally {
       setBusyAgent("");
     }
-  }, [refreshSummaries, topic]);
+  }, [api, refreshSummaries, topic]);
 
   const resumeInstance = useCallback(async (instanceId: string) => {
     setBusyAgent(instanceId);
     try {
-      const session = await resumeAgentTerm(topic, instanceId);
+      const session = await api.resumeAgentTerm(topic, instanceId);
       const { instances } = await refreshSummaries();
       const summary = instances.find((item) => item.instanceId === instanceId);
       if (!summary) throw new Error(`Hub 未返回实例：${instanceId}`);
@@ -455,11 +442,11 @@ export function TerminalPanel({
     } finally {
       setBusyAgent("");
     }
-  }, [refreshSummaries, topic]);
+  }, [api, refreshSummaries, topic]);
 
   useEffect(() => {
     let noticeTimer: number | undefined;
-    const disconnect = connectAgentStateEvents(
+    const disconnect = api.connectAgentStateEvents(
       topic,
       (event) => {
         setAgentStates((current) => ({ ...current, [event.instanceId]: event.state }));
@@ -475,7 +462,7 @@ export function TerminalPanel({
       disconnect();
       if (noticeTimer !== undefined) window.clearTimeout(noticeTimer);
     };
-  }, [topic]);
+  }, [api, topic]);
 
   useEffect(() => {
     let cancelled = false;
@@ -483,7 +470,7 @@ export function TerminalPanel({
       const alive = instances.filter((item) => item.alive);
       const restored = await Promise.all(alive.map(async (item) => ({
         item,
-        session: await resumeAgentTerm(topic, item.instanceId),
+        session: await api.resumeAgentTerm(topic, item.instanceId),
       })));
       if (cancelled) return;
       const next: Record<string, LiveAgentTerm> = {};
@@ -496,7 +483,7 @@ export function TerminalPanel({
       if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
     });
     return () => { cancelled = true; };
-  }, [refreshSummaries, topic]);
+  }, [api, refreshSummaries, topic]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -553,7 +540,7 @@ export function TerminalPanel({
     if (!instanceId) return;
     setClosingInstanceId(instanceId);
     try {
-      await deleteAgentTerm(topic, instanceId);
+      await api.deleteAgentTerm(topic, instanceId);
       setSessions((current) => Object.fromEntries(
         Object.entries(current).filter(([key]) => key !== instanceId),
       ));

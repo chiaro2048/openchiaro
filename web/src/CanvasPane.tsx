@@ -7,15 +7,8 @@ import type {
 } from "@excalidraw/excalidraw/types";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import {
-  connectCanvasUpdates,
-  loadScene,
-  postFocus,
-  postGesture,
-  postScene,
-  SceneConflictError,
-  type SceneData,
-} from "./bridge";
+import { SceneConflictError, useChiaroApi } from "./ChiaroApi";
+import type { SceneData } from "./ChiaroApi";
 import {
   diffChangedElements,
   diffGestureOperations,
@@ -84,6 +77,7 @@ function labelsForSelection(elements: readonly ExcalidrawElement[], ids: string[
 }
 
 export function CanvasPane({ onApiReady, onFocusChange, theme, topic }: CanvasPaneProps) {
+  const chiaroApi = useChiaroApi();
   const [scene, setScene] = useState<SceneData | null>(null);
   const [error, setError] = useState("");
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
@@ -106,7 +100,7 @@ export function CanvasPane({ onApiReady, onFocusChange, theme, topic }: CanvasPa
 
   useEffect(() => {
     let cancelled = false;
-    loadScene(topic)
+    chiaroApi.loadScene(topic)
       .then(({ scene: loaded, version }) => {
         if (cancelled) return;
         elementsRef.current = loaded.elements;
@@ -121,14 +115,14 @@ export function CanvasPane({ onApiReady, onFocusChange, theme, topic }: CanvasPa
     return () => {
       cancelled = true;
     };
-  }, [topic]);
+  }, [chiaroApi, topic]);
 
   const reloadFromDisk = useCallback(async (force = false) => {
     if (!force && Date.now() - lastOwnSaveAtRef.current < 800) {
       lastOwnSaveAtRef.current = 0;
       return;
     }
-    const { scene: next, version } = await loadScene(topic);
+    const { scene: next, version } = await chiaroApi.loadScene(topic);
     const changed = diffChangedElements(elementsRef.current, next.elements);
     elementsRef.current = next.elements;
     gestureBaselineRef.current = next.elements;
@@ -143,16 +137,16 @@ export function CanvasPane({ onApiReady, onFocusChange, theme, topic }: CanvasPa
       requestAnimationFrame(() => api.scrollToContent(changed, { animate: true }));
     }
     setError("");
-  }, [topic]);
+  }, [chiaroApi, topic]);
 
   useEffect(() => {
     if (!scene) return;
-    return connectCanvasUpdates(
+    return chiaroApi.connectCanvasUpdates(
       topic,
       () => reloadFromDisk().catch((cause) => setError(`画布刷新失败：${cause.message}`)),
       setError,
     );
-  }, [reloadFromDisk, scene, topic]);
+  }, [chiaroApi, reloadFromDisk, scene, topic]);
 
   useEffect(
     () => () => {
@@ -168,7 +162,7 @@ export function CanvasPane({ onApiReady, onFocusChange, theme, topic }: CanvasPa
     if (!pending) return;
     pendingFocusRef.current = undefined;
     lastFocusSentAtRef.current = Date.now();
-    postFocus(topic, pending.ids, pending.labels).catch((cause) =>
+    chiaroApi.postFocus(topic, pending.ids, pending.labels).catch((cause) =>
       setError(`Focus 写入失败：${cause.message}`),
     );
   };
@@ -202,13 +196,13 @@ export function CanvasPane({ onApiReady, onFocusChange, theme, topic }: CanvasPa
         const operations = diffGestureOperations(gestureBaselineRef.current, next);
         gestureBaselineRef.current = next;
         if (!operations.length) return;
-        postGesture(topic, operations, summarizeGestureOperations(operations)).catch((cause) =>
-          setError(`手势记录失败：${cause.message}`),
-        );
+        chiaroApi
+          .postGesture(topic, operations, summarizeGestureOperations(operations))
+          .catch((cause) => setError(`手势记录失败：${cause.message}`));
       }, 500);
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
-        postScene(
+        chiaroApi.postScene(
           topic,
           serializeAsJSON(elements, appState, files, "local"),
           sceneVersionRef.current,
