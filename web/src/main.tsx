@@ -3,8 +3,9 @@ import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import { createRoot } from "react-dom/client";
 
 import { CanvasPane } from "./CanvasPane";
-import { createTopic, loadHealth, loadTopics } from "./bridge";
-import type { HubHealth } from "./bridge";
+import { defaultChiaroApi } from "./bridge";
+import { ChiaroApiContext, useChiaroApi } from "./ChiaroApi";
+import type { HubHealth } from "./ChiaroApi";
 import { SettingsPanel } from "./SettingsPanel";
 import { readSettings, SETTINGS, writeSetting } from "./settings.mjs";
 import type { SettingValue, SettingsValues } from "./settings.mjs";
@@ -57,6 +58,7 @@ const initialSettings = storedSettings();
 document.documentElement.dataset.theme = initialSettings.theme;
 
 function App() {
+  const api = useChiaroApi();
   const [requestedTopic] = useState(() => new URLSearchParams(window.location.search).get("topic"));
   const [hubIdentity, setHubIdentity] = useState<{
     error?: string;
@@ -76,7 +78,7 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([loadHealth(), loadTopics(), checkBuildVersion()]).then(([health, catalog]) => {
+    Promise.all([api.loadHealth(), api.loadTopics(), checkBuildVersion()]).then(([health, catalog]) => {
       if (cancelled) return;
       if (requestedTopic !== null && catalog.topics.length > 0
           && !catalog.topics.includes(requestedTopic)) {
@@ -93,7 +95,7 @@ function App() {
       if (!cancelled) setHubIdentity({ error: error.message, checked: true });
     });
     return () => { cancelled = true; };
-  }, [requestedTopic]);
+  }, [api, requestedTopic]);
 
   useEffect(() => {
     document.title = !hubIdentity.checked
@@ -178,7 +180,7 @@ function App() {
     if (!candidate) return;
     setCreatingTopic(true);
     try {
-      const created = await createTopic(candidate);
+      const created = await api.createTopic(candidate);
       setTopics(created.topics);
       setNewTopic("");
       setTopicError("");
@@ -316,4 +318,8 @@ function App() {
 
 const root = document.getElementById("root");
 if (!root) throw new Error("页面缺少 #root 容器");
-createRoot(root).render(<App />);
+createRoot(root).render(
+  <ChiaroApiContext.Provider value={defaultChiaroApi}>
+    <App />
+  </ChiaroApiContext.Provider>,
+);

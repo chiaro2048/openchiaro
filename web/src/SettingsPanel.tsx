@@ -1,4 +1,4 @@
-import type { HubHealth } from "./bridge";
+import type { HubHealth } from "./ChiaroApi";
 import { SETTINGS } from "./settings.mjs";
 import type { SettingValue, SettingsValues } from "./settings.mjs";
 
