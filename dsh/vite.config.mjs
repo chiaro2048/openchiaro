@@ -10,9 +10,13 @@ const packageVersion = JSON.parse(readFileSync(path.join(root, "package.json"), 
 const buildHash = createHash("sha256");
 for (const file of [
   "canvas-logic.mjs",
+  "chiaro-api.ts",
   "chunk.css",
   "chunk.jsx",
   "client.js",
+  "../../web/src/ChiaroApi.ts",
+  "../../web/src/PetDock.tsx",
+  "../../web/src/SettingsPanel.tsx",
   "../../web/src/settings.mjs",
   "../../web/src/tokens.css",
 ]) {

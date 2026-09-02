@@ -9,8 +9,10 @@ import {
   labelsForSelection,
   resolveWorkspaceId,
   sceneSignature,
-  terminalSocketUrl,
 } from "./canvas-logic.mjs";
+import { createDshChiaroApi } from "./chiaro-api.ts";
+import { PetDock } from "../../web/src/PetDock.tsx";
+import { SettingsPanel } from "../../web/src/SettingsPanel.tsx";
 import { readSettings, SETTINGS, writeSetting } from "../../web/src/settings.mjs";
 import "../../web/src/tokens.css";
 import "./chunk.css";
@@ -77,33 +79,59 @@ const queryFor = (workspaceId, topic) => new URLSearchParams({ workspaceId, topi
 
 function ChiaroTerminal({ fontSize, workspace, topic }) {
   const hostRef = React.useRef(null);
+  const api = React.useMemo(() => createDshChiaroApi(workspace.id), [workspace.id]);
   const [agents, setAgents] = React.useState([]);
+  const [summaries, setSummaries] = React.useState([]);
+  const [sessions, setSessions] = React.useState({});
+  const [agentStates, setAgentStates] = React.useState({});
   const [agent, setAgent] = React.useState("claude");
   const [session, setSession] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
   const [status, setStatus] = React.useState("");
-  const query = queryFor(workspace.id, topic);
+
+  const refreshSummaries = React.useCallback(async (signal) => {
+    const catalog = await api.loadAgentTerms(topic, signal);
+    const available = Array.isArray(catalog.agents) ? catalog.agents : [];
+    setAgents(available);
+    setSummaries(catalog.instances);
+    setAgent((current) => available.some((item) => item.agent === current)
+      ? current
+      : available.some((item) => item.agent === "claude") ? "claude" : available[0]?.agent || "");
+    setAgentStates((current) => Object.fromEntries(catalog.instances.map((item) => [
+      item.instanceId,
+      current[item.instanceId] || (item.alive ? "listening" : "away"),
+    ])));
+    return catalog;
+  }, [api, topic]);
 
   React.useEffect(() => {
     const controller = new AbortController();
     setSession(null);
+    setSessions({});
     setStatus("");
-    void requestJson(`/api/chiaro/agent-term?${query}`, {
-      signal: controller.signal,
-      cache: "no-store",
-    }).then((catalog) => {
-      const available = Array.isArray(catalog.agents) ? catalog.agents : [];
-      setAgents(available);
-      setAgent(available.some((item) => item.agent === "claude")
-        ? "claude"
-        : available[0]?.agent || "");
+    void refreshSummaries(controller.signal).then(async ({ instances }) => {
+      const restored = await Promise.all(instances.filter((item) => item.alive).map(async (item) => ({
+        item,
+        session: await api.resumeAgentTerm(topic, item.instanceId),
+      })));
+      if (controller.signal.aborted) return;
+      const next = Object.fromEntries(restored.map(({ item, session: restoredSession }) => [
+        item.instanceId,
+        { ...restoredSession, ...item },
+      ]));
+      setSessions(next);
+      setSession(next[restored[0]?.item.instanceId] || null);
     }).catch((cause) => {
       if (cause.name !== "AbortError") {
         setStatus(`无法读取终端列表：${cause.message}；请检查 workspace 的 agent 配置后重试`);
       }
     });
     return () => controller.abort();
-  }, [query]);
+  }, [api, refreshSummaries, topic]);
+
+  React.useEffect(() => api.connectAgentStateEvents(topic, (event) => {
+    setAgentStates((current) => ({ ...current, [event.instanceId]: event.state }));
+  }), [api, topic]);
 
   React.useEffect(() => {
     const host = hostRef.current;
@@ -121,7 +149,7 @@ function ChiaroTerminal({ fontSize, workspace, topic }) {
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.open(host);
-    const socket = new WebSocket(terminalSocketUrl(location.href, workspace.id, topic, session));
+    const socket = new WebSocket(api.terminalSocketUrl(session, topic));
     socket.binaryType = "arraybuffer";
     const fit = () => {
       if (host.clientWidth < 2 || host.clientHeight < 2) return;
@@ -228,16 +256,24 @@ function ChiaroTerminal({ fontSize, workspace, topic }) {
       socket.close();
       terminal.dispose();
     };
-  }, [fontSize, session, topic, workspace.id]);
+  }, [api, fontSize, session, topic]);
 
   const start = async () => {
     setBusy(true);
     try {
-      setSession(await requestJson(`/api/chiaro/agent-term?${query}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agent }),
-      }));
+      const started = await api.postAgentTerm(topic, agent);
+      const { instances } = await refreshSummaries();
+      const summary = instances.find((item) => item.instanceId === started.instanceId);
+      const live = {
+        ...started,
+        ...summary,
+        agent: summary?.agent || agent,
+        alive: true,
+        label: summary?.label || agent,
+        ordinal: summary?.ordinal || 1,
+      };
+      setSessions((current) => ({ ...current, [live.instanceId]: live }));
+      setSession(live);
       setStatus("");
     } catch (cause) {
       setStatus(`终端启动失败：${cause.message}；请检查 agent 命令配置后重试`);
@@ -246,15 +282,14 @@ function ChiaroTerminal({ fontSize, workspace, topic }) {
     }
   };
 
-  const stop = async () => {
-    if (!session) return;
+  const closeInstance = async (instanceId) => {
     setBusy(true);
     try {
-      await requestJson(`/api/chiaro/agent-term/${encodeURIComponent(session.instanceId)}?${query}`, {
-        method: "DELETE",
-        headers: { "content-type": "application/json" },
-      });
-      setSession(null);
+      await api.deleteAgentTerm(topic, instanceId);
+      const remaining = Object.fromEntries(Object.entries(sessions).filter(([key]) => key !== instanceId));
+      setSessions(remaining);
+      if (session?.instanceId === instanceId) setSession(Object.values(remaining)[0] || null);
+      await refreshSummaries();
       setStatus("");
     } catch (cause) {
       setStatus(`终端关闭失败：${cause.message}；请稍后重试`);
@@ -262,6 +297,38 @@ function ChiaroTerminal({ fontSize, workspace, topic }) {
       setBusy(false);
     }
   };
+
+  const selectInstance = async (instanceId) => {
+    if (sessions[instanceId]) {
+      setSession(sessions[instanceId]);
+      return;
+    }
+    setBusy(true);
+    try {
+      const resumed = await api.resumeAgentTerm(topic, instanceId);
+      const { instances } = await refreshSummaries();
+      const summary = instances.find((item) => item.instanceId === instanceId);
+      if (!summary) throw new Error(`DSH host 未返回实例：${instanceId}`);
+      const live = { ...resumed, ...summary, alive: true };
+      setSessions((current) => ({ ...current, [instanceId]: live }));
+      setSession(live);
+      setStatus("");
+    } catch (cause) {
+      setStatus(`终端恢复失败：${cause.message}；请稍后重试`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const petAgents = summaries.filter(({ alive, resumable }) => alive || resumable).map((item) => ({
+    instanceId: item.instanceId,
+    agent: item.agent,
+    label: item.label,
+    ordinal: item.ordinal,
+    state: agentStates[item.instanceId] || (item.alive ? "listening" : "away"),
+    resumable: item.resumable && !item.alive,
+    justReplied: false,
+  }));
 
   return h("aside", { className: "chiaro-terminal", "aria-label": "Chiaro agent 终端" },
     h("div", { className: "chiaro-terminal-toolbar" },
@@ -273,9 +340,25 @@ function ChiaroTerminal({ fontSize, workspace, topic }) {
         onChange: (event) => setAgent(event.target.value),
       }, agents.map((item) => h("option", { key: item.agent, value: item.agent }, item.label))),
       session
-        ? h("button", { type: "button", disabled: busy, onClick: () => void stop() }, "停止")
+        ? h("button", {
+          type: "button",
+          disabled: busy,
+          onClick: () => void closeInstance(session.instanceId),
+        }, "停止")
         : h("button", { type: "button", disabled: busy || !agent, onClick: () => void start() },
           busy ? "启动中…" : "启动")),
+    h(PetDock, {
+      activeInstanceId: session?.instanceId || "",
+      agents: petAgents,
+      onSelect: (instanceId) => void selectInstance(instanceId),
+      onContextMenu: (event, instanceId) => {
+        event.preventDefault();
+        const summary = summaries.find((item) => item.instanceId === instanceId);
+        if (sessions[instanceId]?.alive && window.confirm(`关闭 ${summary?.label || instanceId} 会话？`)) {
+          void closeInstance(instanceId);
+        }
+      },
+    }),
     session
       ? h("div", { className: "chiaro-terminal-host", ref: hostRef })
       : h("div", { className: "chiaro-terminal-empty" }, "选择 Claude 或 Codex 后启动"),
@@ -316,10 +399,12 @@ export function ChiaroSettings({ ctx }) {
             cache: "no-store",
           });
         const workspace = health.workspaces.find((item) => item.id === workspaceId);
+        const panelHealth = await createDshChiaroApi(workspaceId).loadHealth();
         const frontendVersion = BUILD_VERSION.split("+", 1)[0];
         setInfo({
           buildHash: BUILD_VERSION.split("+", 2)[1] || "开发构建",
-          consistent: health.version === frontendVersion && build.version === BUILD_VERSION,
+          consistent: panelHealth.version === frontendVersion && build.version === BUILD_VERSION,
+          health: panelHealth,
           hostVersion: health.version,
           topic: storedTopic(workspaceId, health.topics),
           workspace,
@@ -345,39 +430,26 @@ export function ChiaroSettings({ ctx }) {
   };
 
   return h("div", { className: "chiaro-settings-section", "data-theme": values.theme },
-    h("h2", null, "Chiaro 设置/关于"),
-    h("p", { className: "chiaro-settings-intro" }, "个性化设置只保存在当前浏览器。"),
-    h("section", null,
-      h("h3", null, "通用"),
-      SETTINGS.map((setting) => h("label", { className: "chiaro-settings-row", key: setting.id },
-        h("span", null, h("strong", null, setting.label), h("small", null, setting.description)),
-        setting.kind === "select"
-          ? h("select", {
-            "aria-label": setting.label,
-            value: values[setting.id],
-            onChange: (event) => changeSetting(setting, event.target.value),
-          }, setting.options.map((option) => h("option", {
-            key: option.value,
-            value: option.value,
-          }, option.label)))
-          : h("input", {
-            "aria-label": setting.label,
-            type: "number",
-            min: setting.min,
-            max: setting.max,
-            step: setting.step,
-            value: values[setting.id],
-            onChange: (event) => changeSetting(setting, Number(event.target.value)),
-          })))),
-    info ? h("section", null,
-      h("h3", null, "关于"),
-      h("dl", { className: "chiaro-settings-about" },
+    info ? h(SettingsPanel, {
+      about: h("dl", { className: "settings-about" },
         h("div", null, h("dt", null, "dsh-openchiaro"), h("dd", null, info.hostVersion)),
         h("div", null, h("dt", null, "构建哈希"), h("dd", null, info.buildHash)),
         h("div", null, h("dt", null, "host / chunk"), h("dd", null, info.consistent ? "一致" : "不一致")),
         h("div", null, h("dt", null, "workspace"), h("dd", null, info.workspace?.path || "—")),
-        h("div", null, h("dt", null, "topic"), h("dd", null, info.topic || "—")))) : null,
-    error ? h("p", { className: "chiaro-settings-error", role: "alert" }, error) : null);
+        h("div", null, h("dt", null, "topic"), h("dd", null, info.topic || "—"))),
+      buildVersion: BUILD_VERSION,
+      embedded: true,
+      health: info.health,
+      onChange: (id, value) => {
+        const setting = SETTINGS.find((item) => item.id === id);
+        if (setting) changeSetting(setting, value);
+      },
+      topic: info.topic,
+      values,
+    }) : null,
+    error
+      ? h("p", { className: "chiaro-settings-error", role: "alert" }, error)
+      : !info ? h("p", { role: "status" }, "正在加载 Chiaro 设置…") : null);
 }
 
 export function ChiaroCanvas({ ctx, onClose }) {

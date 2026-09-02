@@ -128,7 +128,14 @@ export function createDshChiaroApi(workspaceId: string): ChiaroApi {
         scopedPath("/api/chiaro/agent-term", workspaceId, topic),
         { cache: "no-store", signal },
       );
-      if (!Array.isArray(catalog?.agents) || !Array.isArray(catalog.instances)) {
+      if (!Array.isArray(catalog?.agents) || catalog.agents.some((entry) => (
+        typeof entry?.agent !== "string" || typeof entry.label !== "string"
+      )) || !Array.isArray(catalog.instances) || catalog.instances.some((term) => (
+        typeof term?.instanceId !== "string" || typeof term.agent !== "string" ||
+        typeof term.label !== "string" || !Number.isInteger(term.ordinal) || term.ordinal < 1 ||
+        typeof term.alive !== "boolean" || typeof term.resumable !== "boolean" ||
+        typeof term.startedAt !== "number"
+      ))) {
         throw new Error("DSH host 未返回有效 Agent 终端列表");
       }
       return catalog;
@@ -165,6 +172,8 @@ export function createDshChiaroApi(workspaceId: string): ChiaroApi {
           : reject(new Error("剪贴板图片编码失败"));
         reader.readAsDataURL(image);
       });
+      const comma = dataUrl.indexOf(",");
+      if (comma < 0) throw new Error("剪贴板图片编码失败");
       const url = new URL(scopedPath(
         `/api/chiaro/agent-term/${encodeURIComponent(instanceId)}/attachment`,
         workspaceId,
@@ -174,7 +183,7 @@ export function createDshChiaroApi(workspaceId: string): ChiaroApi {
       const result = await json<{ path?: unknown }>(url.toString(), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mimeType: image.type, base64: dataUrl.slice(dataUrl.indexOf(",") + 1) }),
+        body: JSON.stringify({ mimeType: image.type, base64: dataUrl.slice(comma + 1) }),
       });
       if (typeof result.path !== "string" || !result.path) {
         throw new Error("DSH host 未返回附件路径");
@@ -188,7 +197,9 @@ export function createDshChiaroApi(workspaceId: string): ChiaroApi {
         topics?: unknown;
         workspaces?: { id?: unknown; path?: unknown }[];
       }>(scopedPath("/api/chiaro/health", workspaceId), { cache: "no-store" });
-      const workspace = body.workspaces?.find((item) => item.id === workspaceId);
+      const workspace = Array.isArray(body.workspaces)
+        ? body.workspaces.find((item) => item.id === workspaceId)
+        : undefined;
       const topics = Array.isArray(body.topics)
         ? body.topics.filter((topic): topic is string => typeof topic === "string")
         : [];
@@ -225,7 +236,8 @@ export function createDshChiaroApi(workspaceId: string): ChiaroApi {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ workspaceId, topic }),
       });
-      if (typeof body.topic !== "string" || !Array.isArray(body.topics)) {
+      if (typeof body.topic !== "string" || !Array.isArray(body.topics)
+          || body.topics.some((entry) => typeof entry !== "string")) {
         throw new Error("DSH host 未返回有效 topic 列表");
       }
       return body as TopicCatalog;
