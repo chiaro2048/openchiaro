@@ -14,10 +14,14 @@ for (const file of [
   "chunk.css",
   "chunk.jsx",
   "client.js",
+  "../../web/src/CanvasPane.tsx",
   "../../web/src/ChiaroApi.ts",
   "../../web/src/PetDock.tsx",
+  "../../web/src/sceneDiff.ts",
   "../../web/src/SettingsPanel.tsx",
   "../../web/src/settings.mjs",
+  "../../web/src/styles.css",
+  "../../web/src/TerminalPanel.tsx",
   "../../web/src/tokens.css",
 ]) {
   buildHash.update(file).update(readFileSync(path.join(root, "client", file)));
